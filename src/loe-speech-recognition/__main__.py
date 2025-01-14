@@ -4,8 +4,6 @@ import sys
 import time
 import wave
 
-from matplotlib.animation import FuncAnimation
-import matplotlib.pyplot as plt
 import numpy as np
 import sounddevice as sd
 
@@ -49,9 +47,13 @@ def main() -> None:
         wav.setframerate(16000)
         wav.setsampwidth(2)
         with stream:
-            while time.time() - start_time < 3:
-                frame = q.get()
-                wav.writeframes(frame.flatten().tobytes())
+            try:
+                while time.time() - start_time < timeout:
+                    frame = q.get()
+                    wav.writeframes(frame.flatten().tobytes())
+            except KeyboardInterrupt:
+                print("Keyboard interrupt received, stopping")
+                pass
 
 if __name__ == "__main__":
     main()
