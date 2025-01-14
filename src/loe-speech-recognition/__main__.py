@@ -7,13 +7,6 @@ import wave
 import numpy as np
 import sounddevice as sd
 
-# Main Loop
-
-## Don't stop until CTRL-D is received
-
-## Start record when recording is hit
-
-
 def main() -> None:
     # All the default settings
     samplerate = 16000
@@ -44,13 +37,16 @@ def main() -> None:
     # The recording starts
     with wave.open("test.wav", "wb") as wav:
         wav.setnchannels(1)
-        wav.setframerate(16000)
-        wav.setsampwidth(2)
+        wav.setframerate(samplerate)
+        wav.setsampwidth(2) # Meaning 16 bit 
         with stream:
             try:
+                accumulated_silent_time: float = 0.0
+                silent_time_threshold: float = 0.2
+                background_noise_threshold: int = 20
                 while time.time() - start_time < timeout:
-                    frame = q.get()
-                    wav.writeframes(frame.flatten().tobytes())
+                    frame: np.ndarray = q.get().flatten()
+                    wav.writeframes(frame.tobytes())
             except KeyboardInterrupt:
                 print("Keyboard interrupt received, stopping")
                 pass
