@@ -107,7 +107,7 @@ try:
     if len(args.channels) > 1:
         ax.legend([f'channel {c}' for c in args.channels],
                   loc='lower left', ncol=len(args.channels))
-    ax.axis((0, len(plotdata), -1, 1))
+    ax.axis((0, len(plotdata), -32768, 32768)) # This is changed because we are using int16
     ax.set_yticks([0])
     ax.yaxis.grid(True)
     ax.tick_params(bottom=False, top=False, labelbottom=False,
@@ -118,32 +118,6 @@ try:
         device=args.device, channels=max(args.channels),
         samplerate=args.samplerate, callback=audio_callback,
         dtype=np.int16) # Specify the 16-bit data type
-    ani = FuncAnimation(fig, update_plot, interval=args.interval, blit=True)
-    with stream:
-        plt.show()
-except Exception as e:
-    parser.exit(type(e).__name__ + ': ' + str(e))
-
-
-try:
-    length = int(args.window * args.samplerate / (1000 * args.downsample))
-    plotdata = np.zeros((length, len(args.channels)))
-
-    fig, ax = plt.subplots()
-    lines = ax.plot(plotdata)
-    if len(args.channels) > 1:
-        ax.legend([f'channel {c}' for c in args.channels],
-                  loc='lower left', ncol=len(args.channels))
-    ax.axis((0, len(plotdata), -1, 1))
-    ax.set_yticks([0])
-    ax.yaxis.grid(True)
-    ax.tick_params(bottom=False, top=False, labelbottom=False,
-                   right=False, left=False, labelleft=False)
-    fig.tight_layout(pad=0)
-
-    stream = sd.InputStream(
-        device=args.device, channels=max(args.channels),
-        samplerate=args.samplerate, callback=audio_callback)
     ani = FuncAnimation(fig, update_plot, interval=args.interval, blit=True)
     with stream:
         plt.show()
