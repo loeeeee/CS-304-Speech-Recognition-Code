@@ -172,3 +172,4 @@ cython_debug/
 
 requirement.pdf
 *.mp3
+*.wav
