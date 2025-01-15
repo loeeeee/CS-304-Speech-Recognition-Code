@@ -174,3 +174,4 @@ requirement.pdf
 *.mp3
 *.wav
 playground-*
+segment_results/
