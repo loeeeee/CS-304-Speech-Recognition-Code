@@ -8,7 +8,19 @@ import wave
 import numpy as np
 import sounddevice as sd
 
-def detect_segment(signal: queue.Queue, result: List[np.ndarray], frame_size: int = 1600, high_threshold: int=512, noise_floor:int=128) -> bool:
+def get_noise_floor(frames: np.ndarray) -> int:
+    return int(np.average(np.abs(frames)))
+
+def get_all_frames_from_queue(cache: queue.Queue) -> np.ndarray:
+    results: np.ndarray = cache.get().reshape(-1)
+    try:
+        while True:
+            results = np.concatenate((results, cache.get_nowait().reshape(-1)))
+    except queue.Empty:
+        pass
+    return results
+
+def detect_segment(cache: queue.Queue, result: List[np.ndarray], frame_size: int = 1600, high_threshold: int=512, noise_floor:int=128) -> bool:
     # Setup flags
     """
     Implements a two-threshold adaptive endpointing algorithm.
@@ -24,15 +36,7 @@ def detect_segment(signal: queue.Queue, result: List[np.ndarray], frame_size: in
         A list of indices indicating the start and end frames of speech segments.
     """
     # Get all cached signal
-    audio = signal.get(timeout=0.1).reshape(-1)
-    # print(f"First audio {audio}")
-    try:
-        while True:
-            next_audio = signal.get_nowait().reshape(-1)
-            # print(f"Next audio {next_audio}")
-            audio = np.concatenate((audio, next_audio))
-    except queue.Empty:
-        pass
+    audio = get_all_frames_from_queue(cache)
 
     # ----------------------
     # Endpointing
@@ -81,7 +85,6 @@ def create_standard_stream(data_flow: queue.Queue, samplerate: int = 44100, chan
         dtype=np.int16,
         ) # Specify the 16-bit data type
 
-
 def main() -> None:
     # All the default settings
     samplerate = 16000
@@ -101,12 +104,8 @@ def main() -> None:
     print("Initialize devices")
     with stream:
         time.sleep(0.5)
-        background_samples: np.ndarray = q.get().reshape(-1)
-        try:
-            while True:
-                background_samples = np.concatenate((background_samples, q.get_nowait().reshape(-1)))
-        except queue.Empty:
-            noise_floor = int(np.average(np.abs(background_samples)))
+        background_samples: np.ndarray = get_all_frames_from_queue(q)
+        noise_floor: int = get_noise_floor(background_samples)
 
     print("Start Recording")
     
