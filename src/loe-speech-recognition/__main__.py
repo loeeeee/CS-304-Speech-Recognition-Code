@@ -1,4 +1,4 @@
-
+import itertools
 import queue
 import sys
 import time
@@ -6,6 +6,7 @@ from typing import List
 import wave
 
 import numpy as np
+from numpy.lib import NumpyVersion
 import sounddevice as sd
 
 def detect_segment(signal: queue.Queue, result: List[np.ndarray], frame_size: int = 1600, high_threshold: int=512, noise_floor:int=128) -> bool:
@@ -37,12 +38,7 @@ def detect_segment(signal: queue.Queue, result: List[np.ndarray], frame_size: in
 
     def isSpeech(current_frame: np.ndarray) -> bool:
         abs_total_frame = np.abs(current_frame) - noise_floor
-        # print(current_frame.shape)
-        # print(np.max(abs_total_frame), np.min(abs_total_frame))
-        # print()
         average_energy = np.average(abs_total_frame)
-        print(average_energy)
-        print(high_threshold)
         if average_energy > high_threshold:
             return True
         else:
@@ -55,7 +51,8 @@ def detect_segment(signal: queue.Queue, result: List[np.ndarray], frame_size: in
     trimmed_audio = audio[:frame_size*num_of_frames]
     # print(trimmed_audio.shape)
     cool_down_counter = 3
-    for frame in trimmed_audio.reshape((-1, frame_size)):
+    for frame in itertools.chain.from_iterable((trimmed_audio.reshape((-1, frame_size)), [audio[frame_size*num_of_frames:]])):
+        print(frame.shape)
         if isSpeech(frame):
             cool_down_counter = 3
             result.append(frame)
@@ -111,10 +108,10 @@ def main() -> None:
     print("Start Recording")
     
     q = queue.Queue()
-    stream = create_standard_stream(q)
+    stream = create_standard_stream(q,samplerate=samplerate)
     
     start_time = time.time()
-    timeout = 5
+    timeout = 15
     segment_detection_interval: float = 0.5 # Do it every 0.2 seconds
     last_segment_detection: float = time.time() + 0.2
     results: List = []
@@ -145,6 +142,7 @@ def main() -> None:
                         time.sleep(segment_detection_interval)
                 # Get the segmented speech
                 segmented_speech: np.ndarray = np.concatenate(results)
+                sd.play(segmented_speech, 16000, blocking=True)
                 wav.writeframes(segmented_speech.tobytes())
             except KeyboardInterrupt:
                 print("Keyboard interrupt received, stopping")
