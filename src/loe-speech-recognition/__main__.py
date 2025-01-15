@@ -138,7 +138,7 @@ def main() -> None:
                         time.sleep(segment_detection_interval)
                 # Get the segmented speech
                 segmented_speech: np.ndarray = np.concatenate(results)
-                sd.play(segmented_speech, 16000, blocking=True)
+                # sd.play(segmented_speech, 16000, blocking=True)
                 wav.writeframes(segmented_speech.tobytes())
             except KeyboardInterrupt:
                 print("Keyboard interrupt received, stopping")
