@@ -25,7 +25,7 @@ class Segmentation:
     # Internals
     _noise_floor: int = field(default=0) # May use default factory for an init measurement
     _speech_started: bool = field(default=False)
-    _speech_ended: bool = field(default=False)
+    _speech_ended: bool = field(default=True)
     _results: List[np.ndarray] = field(default_factory=list)
     _per_frame_time: float = field(default=0.02) # Initialize this when main is called
 
@@ -49,10 +49,10 @@ class Segmentation:
             with self.stream:
                 while True:
                     input("Press any key to start recording")
-                    
-                    # Routine
 
-                    pass 
+                    # Routine
+                    self.routine()
+
         except KeyboardInterrupt:
             print("Gracefully exiting")
             for index, segment in enumerate(self._results):
@@ -65,6 +65,7 @@ class Segmentation:
         audio = self.get_all_frames_from_queue(self.audio_cache)
 
         num_of_frames: int = audio.shape[0] // self.frame_size
+        logger.debug(f"Getting {num_of_frames} frames")
 
         # Construct an iterable for all audio
         trimmed_audio = audio[:self.frame_size*num_of_frames]
@@ -75,15 +76,18 @@ class Segmentation:
                 # Detect speech continues
                 if self.detect_speech(frame, threshold="low"):
                     self._results[-1] = np.concatenate((self._results[-1], frame))
-                    pass
+                    logger.debug("Speech continued")
                 else:
                     self._speech_ended = True
-                    pass
+                    self._speech_started = False
+                    logger.info("Speech stopped")
             else:
                 # Detect speech start
                 if self.detect_speech(frame, threshold="high"):
                     self._results.append(frame) # Add new words to the results
                     self._speech_started = True
+                    self._speech_ended = False
+                    logger.info("Speech recognized")
         return
 
     def detect_speech(self, frames: np.ndarray, threshold: Literal["high", "low"]) -> bool:
@@ -101,7 +105,9 @@ class Segmentation:
     # ---------------
     @staticmethod
     def get_noise_floor(frames: np.ndarray) -> int:
-        return int(np.average(np.abs(frames)))
+        noise_floor: int = int(np.average(np.abs(frames)))
+        logger.debug(f"Current noise floor is {noise_floor}")
+        return noise_floor
 
     @staticmethod
     def get_all_frames_from_queue(cache: queue.Queue) -> np.ndarray:
@@ -134,6 +140,7 @@ class Segmentation:
             ) # Specify the 16-bit data type
         result: Self = cls(stream, audio_cache)
 
+        logger.info(f"Create Segmentation object from basic settings")
         return result
 
 
