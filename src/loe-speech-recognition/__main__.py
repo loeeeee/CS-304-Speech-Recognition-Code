@@ -87,6 +87,7 @@ def main() -> None:
     q = queue.Queue()
     stream = create_standard_stream(q, samplerate=samplerate)
 
+    # Find noise floor
     print("Initialize devices")
     time.sleep(0.2)
     with stream:
@@ -100,7 +101,7 @@ def main() -> None:
 
     # A blocking statement
     input("Press any key to start recording!")
-    time.sleep(1)
+    time.sleep(1) # Avoid keyboard noise
     print("Start Recording")
     
     q = queue.Queue()
