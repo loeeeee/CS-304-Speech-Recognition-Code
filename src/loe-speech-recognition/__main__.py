@@ -34,7 +34,9 @@ def detect_segment(signal: queue.Queue, result: List[np.ndarray], frame_size: in
     except queue.Empty:
         pass
 
-
+    # ----------------------
+    # Endpointing
+    # ----------------------
     def isSpeech(current_frame: np.ndarray) -> bool:
         abs_total_frame = np.abs(current_frame) - noise_floor
         average_energy = np.average(abs_total_frame)
@@ -84,12 +86,19 @@ def main() -> None:
     # All the default settings
     samplerate = 16000
 
+    # A blocking statement
+    # ----------------------
+    # Hit to talk
+    # ----------------------
+    input("Press any key to start recording!")
+
+    time.sleep(0.3) # Avoid keyboard noise
+
     q = queue.Queue()
     stream = create_standard_stream(q, samplerate=samplerate)
 
     # Find noise floor
     print("Initialize devices")
-    time.sleep(0.2)
     with stream:
         time.sleep(0.5)
         background_samples: np.ndarray = q.get().reshape(-1)
@@ -99,9 +108,6 @@ def main() -> None:
         except queue.Empty:
             noise_floor = int(np.average(np.abs(background_samples)))
 
-    # A blocking statement
-    input("Press any key to start recording!")
-    time.sleep(1) # Avoid keyboard noise
     print("Start Recording")
     
     q = queue.Queue()
@@ -114,10 +120,16 @@ def main() -> None:
     results: List = []
     speech_ever_detected: bool = False
     # The recording starts
+    # ----------------------
+    # Written to file
+    # ----------------------
     with wave.open("test.wav", "wb") as wav:
         wav.setnchannels(1)
         wav.setframerate(samplerate)
         wav.setsampwidth(2) # Meaning 16 bit 
+        # ----------------------
+        # Speech capture
+        # ----------------------
         with stream:
             try:
                 while time.time() - start_time < timeout:
