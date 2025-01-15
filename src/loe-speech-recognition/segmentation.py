@@ -61,13 +61,15 @@ class Segmentation:
     frame_size: int = field(default=320)
     speech_high_threshold: int = field(default=512) # Start volume
     speech_low_threshold: int = field(default=64) # Cut volume
+    silence_duration_threshold: float = field(default=0.1)
 
     # Internals
     _noise_floor: NoiseFloor = field(default_factory=NoiseFloor) # May use default factory for an init measurement
     _speech_started: bool = field(default=False)
     _speech_ended: bool = field(default=True)
     _results: List[np.ndarray] = field(default_factory=list)
-    _per_frame_time: float = field(default=0.02) # Initialize this when main is called
+    _per_frame_time: float = field(init=False) # Initialize this when main is called
+    _maximum_silence_frames: int = field(init=False)
 
     @no_type_check
     def write_to_wave(self, samples: np.ndarray, name: str) -> None:
@@ -85,6 +87,9 @@ class Segmentation:
     def main(self) -> None:
         """The main loop where hit-to-talk happens"""
         self._per_frame_time = 1 / self.stream.samplerate * self.frame_size
+        self._maximum_silence_frames = int(self.silence_duration_threshold / self._per_frame_time)
+        logger.info(f"Single frame is {self._per_frame_time}s")
+        logger.info(f"Maximum silence frames count is {self._maximum_silence_frames}")
 
         try:
             with self.stream:
@@ -92,14 +97,15 @@ class Segmentation:
                 input("Press any key to start recording")
                 self.initialize_noise_floor()
                 while True:
-                    logger.debug("Start recording")
-
                     # Routine
                     self.routine()
-                    time.sleep(0.2) # Don't draw too much CPU
+                    time.sleep(1) # Don't draw too much CPU
 
         except KeyboardInterrupt:
             print("\nGracefully exiting")
+            # One last routine to clean up queue
+            logger.info("One last routine")
+            self.routine()
             for index, segment in enumerate(self._results):
                 self.write_to_wave(segment, str(index).zfill(2))
         ...
@@ -116,26 +122,60 @@ class Segmentation:
         trimmed_audio = audio[:self.frame_size*num_of_frames]
         iter_audio_frames = itertools.chain.from_iterable((trimmed_audio.reshape((-1, self.frame_size)), [audio[self.frame_size*num_of_frames:]]))
 
+        # First Pass
+        markers: List[Literal["start", "middle", "end", False, True]] = []
         for frame in iter_audio_frames:
             if self._speech_started:
                 # Detect speech continues
                 if self.detect_speech(frame, threshold="low"):
-                    self._results[-1] = np.concatenate((self._results[-1], frame))
+                    markers.append("middle")
                     logger.debug("Speech continued")
                 else:
                     self._speech_ended = True
                     self._speech_started = False
+                    markers.append("end")
                     logger.info("Speech stopped")
             else:
                 # Detect speech start
                 if self.detect_speech(frame, threshold="high"):
-                    self._results.append(frame) # Add new words to the results
+                    markers.append("start")
                     self._speech_started = True
                     self._speech_ended = False
                     logger.info("Speech recognized")
                 else:
                     # Update noise floor
-                    self._noise_floor.update_noise_floor(frame)
+                    markers.append(False)
+        logger.debug(f"Markers: {markers}")
+
+        # Change markers based on the silence threshold
+        for index, marker in enumerate(markers[1:-2], start=1):
+            if not marker:
+                if markers[index - 1] and any(markers[index+1: index+self._maximum_silence_frames+1]): # True False False False True
+                    markers[index] = True
+                    logger.debug("Mark one silence frame as speech")
+        logger.debug(f"Next markers: {markers}")
+
+        # Second pass
+        background_samples: List[np.ndarray] = []
+        # Have to reset iterator
+        iter_audio_frames = itertools.chain.from_iterable((trimmed_audio.reshape((-1, self.frame_size)), [audio[self.frame_size*num_of_frames:]]))
+        for frame, marker in zip(iter_audio_frames, markers):
+            if marker == "start":
+                self._results.append(frame) # Add new words to the results
+                logger.debug("Add new speech to result")
+            elif marker == "middle" or marker == "end" or marker == True:
+                self._results[-1] = np.concatenate((self._results[-1], frame))
+            else:
+                background_samples.append(frame)
+        
+        # logger.debug(f"Result: {self._results}")
+
+        # Update background noise
+        if background_samples:
+            self._noise_floor.update_noise_floor(np.concatenate(background_samples))
+            logger.debug(f"Find {len(background_samples)} background samples")
+        else:
+            logger.debug("No background samples found")
         return
 
     def detect_speech(self, frames: np.ndarray, threshold: Literal["high", "low"]) -> bool:
@@ -197,6 +237,7 @@ def main() -> None:
     )
     seg.speech_high_threshold = 128
     seg.speech_low_threshold = 64
+    seg.silence_duration_threshold = 0.3
     seg.main()
 
 
