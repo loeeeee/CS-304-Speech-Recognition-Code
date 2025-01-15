@@ -2,13 +2,13 @@
 import queue
 import sys
 import time
-from typing import Generator, List
+from typing import List
 import wave
 
 import numpy as np
 import sounddevice as sd
 
-def detect_segment(signal: queue.Queue, result: List[np.ndarray], frame_size: int = 1600, hop_size: int = 160, high_threshold: int=512, noise_floor:int=128) -> bool:
+def detect_segment(signal: queue.Queue, result: List[np.ndarray], frame_size: int = 1600, high_threshold: int=512, noise_floor:int=128) -> bool:
     # Setup flags
     """
     Implements a two-threshold adaptive endpointing algorithm.
@@ -68,28 +68,30 @@ def detect_segment(signal: queue.Queue, result: List[np.ndarray], frame_size: in
 
     return speech_detected
 
-
-def main() -> None:
-    # All the default settings
-    samplerate = 16000
-    channels = [1]
+def create_standard_stream(data_flow: queue.Queue, samplerate: int = 44100, channels: List = [1]) -> sd.InputStream:
     mapping = [c - 1 for c in channels]  # Channel numbers start with 1
 
-    q = queue.Queue()
-    # Def callback action
     def audio_callback(indata, frames, time, status):
         """This is called (from a separate thread) for each audio block."""
         if status:
             print(status, file=sys.stderr)
         # Fancy indexing with mapping creates a (necessary!) copy:
-        q.put(indata[::1, mapping])
-
-    stream = sd.InputStream(
+        data_flow.put(indata[::1, mapping])
+    
+    return sd.InputStream(
         channels=max(channels),
         samplerate=samplerate, 
         callback=audio_callback,
         dtype=np.int16,
         ) # Specify the 16-bit data type
+
+
+def main() -> None:
+    # All the default settings
+    samplerate = 16000
+
+    q = queue.Queue()
+    stream = create_standard_stream(q, samplerate=samplerate)
 
     print("Initialize devices")
     time.sleep(0.2)
@@ -107,13 +109,9 @@ def main() -> None:
     input("Press any key to start recording!")
     time.sleep(1)
     print("Start Recording")
-
-    stream = sd.InputStream(
-        channels=max(channels),
-        samplerate=samplerate, 
-        callback=audio_callback,
-        dtype=np.int16,
-        ) # Specify the 16-bit data type
+    
+    q = queue.Queue()
+    stream = create_standard_stream(q)
     
     start_time = time.time()
     timeout = 5
@@ -128,8 +126,7 @@ def main() -> None:
         wav.setsampwidth(2) # Meaning 16 bit 
         with stream:
             try:
-                while True:
-                # while time.time() - start_time < timeout:
+                while time.time() - start_time < timeout:
                     if last_segment_detection + segment_detection_interval <= time.time():
                         last_segment_detection = time.time()
                         detect_result = detect_segment(q, results, noise_floor=noise_floor)
@@ -145,7 +142,6 @@ def main() -> None:
                             continue
                     else:
                         # Sleep till the next detection
-                        # print("Sleep")
                         time.sleep(segment_detection_interval)
                 # Get the segmented speech
                 segmented_speech: np.ndarray = np.concatenate(results)
