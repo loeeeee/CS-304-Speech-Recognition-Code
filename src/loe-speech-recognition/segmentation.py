@@ -42,7 +42,7 @@ class NoiseFloor:
             noise_floor += (self.num_of_samples - index) * np.average(np.abs(samples))
 
         self._noise_floor: int = int(noise_floor / multiplier)
-        logger.debug(f"Current noise floor is {noise_floor}")
+        logger.debug(f"Current noise floor is {self._noise_floor}")
         return
 
     def __str__(self) -> str:
@@ -195,8 +195,8 @@ def main() -> None:
     seg = Segmentation.from_basic(
         sample_rate=16000
     )
-    seg.speech_high_threshold = 256
-    seg.speech_low_threshold = 128
+    seg.speech_high_threshold = 128
+    seg.speech_low_threshold = 64
     seg.main()
 
 
