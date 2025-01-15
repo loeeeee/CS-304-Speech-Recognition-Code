@@ -37,7 +37,7 @@ def detect_segment(signal: queue.Queue, result: List[np.ndarray], frame_size: in
 
     def isSpeech(current_frame: np.ndarray) -> bool:
         abs_total_frame = np.abs(current_frame) - noise_floor
-        print(current_frame.shape)
+        # print(current_frame.shape)
         # print(np.max(abs_total_frame), np.min(abs_total_frame))
         # print()
         average_energy = np.average(abs_total_frame)
@@ -103,25 +103,6 @@ def main() -> None:
             noise_floor = int(np.average(np.abs(background_samples)))
             print(noise_floor)
 
-
-
-    # stream = sd.InputStream(
-    #     channels=max(channels),
-    #     samplerate=samplerate, 
-    #     callback=audio_callback,
-    #     dtype=np.int16,
-    #     ) # Specify the 16-bit data type
-
-    # print("Initialize devices")
-    # with stream:
-    #     time.sleep(0.01)
-    #     background_samples: np.ndarray = q.get().reshape(-1)
-    #     try:
-    #         while True:
-    #             print(q.get().reshape(-1))
-    #     except queue.Empty:
-    #         pass
-
     # A blocking statement
     input("Press any key to start recording!")
     time.sleep(1)
@@ -136,7 +117,7 @@ def main() -> None:
     
     start_time = time.time()
     timeout = 5
-    segment_detection_interval: float = 1 # Do it every 0.2 seconds
+    segment_detection_interval: float = 0.5 # Do it every 0.2 seconds
     last_segment_detection: float = time.time() + 0.2
     results: List = []
     speech_ever_detected: bool = False
@@ -150,8 +131,9 @@ def main() -> None:
                 while True:
                 # while time.time() - start_time < timeout:
                     if last_segment_detection + segment_detection_interval <= time.time():
+                        last_segment_detection = time.time()
                         detect_result = detect_segment(q, results, noise_floor=noise_floor)
-                        # print(detect_result)
+                        print(detect_result)
                         if detect_result:
                             # Return true if speech was never detected or it is in speech
                             speech_ever_detected = True
@@ -163,14 +145,11 @@ def main() -> None:
                             continue
                     else:
                         # Sleep till the next detection
-                        print("Sleep")
+                        # print("Sleep")
                         time.sleep(segment_detection_interval)
                 # Get the segmented speech
                 segmented_speech: np.ndarray = np.concatenate(results)
                 wav.writeframes(segmented_speech.tobytes())
-                #while time.time() - start_time < timeout:
-                #    frame: np.ndarray = q.get().flatten()
-                #    wav.writeframes(frame.tobytes())
             except KeyboardInterrupt:
                 print("Keyboard interrupt received, stopping")
                 pass
