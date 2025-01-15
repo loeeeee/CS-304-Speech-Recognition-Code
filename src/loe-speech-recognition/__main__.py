@@ -6,7 +6,6 @@ from typing import List
 import wave
 
 import numpy as np
-from numpy.lib import NumpyVersion
 import sounddevice as sd
 
 def detect_segment(signal: queue.Queue, result: List[np.ndarray], frame_size: int = 1600, high_threshold: int=512, noise_floor:int=128) -> bool:
@@ -47,12 +46,10 @@ def detect_segment(signal: queue.Queue, result: List[np.ndarray], frame_size: in
     num_of_frames: int = audio.shape[0] // frame_size
 
     speech_detected = False
-    # print("Detect")
     trimmed_audio = audio[:frame_size*num_of_frames]
     # print(trimmed_audio.shape)
     cool_down_counter = 3
     for frame in itertools.chain.from_iterable((trimmed_audio.reshape((-1, frame_size)), [audio[frame_size*num_of_frames:]])):
-        print(frame.shape)
         if isSpeech(frame):
             cool_down_counter = 3
             result.append(frame)
@@ -100,7 +97,6 @@ def main() -> None:
                 background_samples = np.concatenate((background_samples, q.get_nowait().reshape(-1)))
         except queue.Empty:
             noise_floor = int(np.average(np.abs(background_samples)))
-            print(noise_floor)
 
     # A blocking statement
     input("Press any key to start recording!")
@@ -111,8 +107,8 @@ def main() -> None:
     stream = create_standard_stream(q,samplerate=samplerate)
     
     start_time = time.time()
-    timeout = 15
-    segment_detection_interval: float = 0.5 # Do it every 0.2 seconds
+    timeout = 30
+    segment_detection_interval: float = 1 # Do it every 0.2 seconds
     last_segment_detection: float = time.time() + 0.2
     results: List = []
     speech_ever_detected: bool = False
@@ -127,7 +123,6 @@ def main() -> None:
                     if last_segment_detection + segment_detection_interval <= time.time():
                         last_segment_detection = time.time()
                         detect_result = detect_segment(q, results, noise_floor=noise_floor)
-                        print(detect_result)
                         if detect_result:
                             # Return true if speech was never detected or it is in speech
                             speech_ever_detected = True
