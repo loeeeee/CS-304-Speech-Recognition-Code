@@ -30,7 +30,7 @@ def main() -> None:
     for file_name in os.listdir(path):
         full_path = os.path.join(path, file_name)
         data, fs = sf.read(full_path, dtype='float32')
-        data = data * 4
+        data = data # * 1.5
         sd.play(data, fs)
         sd.wait()
         play_sine_wave()
