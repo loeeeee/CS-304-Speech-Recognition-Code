@@ -58,7 +58,7 @@ class Segmentation:
     audio_cache: queue.Queue
 
     # Settings
-    frame_size: int = field(default=320)
+    frame_size: int = field(default=640)
     speech_high_threshold: int = field(default=512) # Start volume
     speech_low_threshold: int = field(default=64) # Cut volume
     silence_duration_threshold: float = field(default=0.1)
@@ -95,11 +95,12 @@ class Segmentation:
             with self.stream:
                 logger.debug("Entering recording stream")
                 input("Press any key to start recording")
+                print("Recording started")
                 self.initialize_noise_floor()
                 while True:
                     # Routine
                     self.routine()
-                    time.sleep(1) # Don't draw too much CPU
+                    time.sleep(2) # Don't draw too much CPU
 
         except KeyboardInterrupt:
             print("\nGracefully exiting")
@@ -235,9 +236,10 @@ def main() -> None:
     seg = Segmentation.from_basic(
         sample_rate=16000
     )
-    seg.speech_high_threshold = 128
-    seg.speech_low_threshold = 64
-    seg.silence_duration_threshold = 0.3
+    seg.speech_high_threshold = 2048
+    seg.speech_low_threshold = 1024
+    # Words
+    seg.silence_duration_threshold = 0.6
     seg.main()
 
 
