@@ -170,7 +170,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-requirement.pdf
+requirement-*.pdf
 *.mp3
 *.wav
 playground-*
