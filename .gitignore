@@ -175,3 +175,4 @@ requirement-*.pdf
 *.wav
 playground-*
 segment_results/
+/recordings

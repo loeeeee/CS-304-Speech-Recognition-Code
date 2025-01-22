@@ -10,3 +10,12 @@
     - Auto stop
     - Save to file
     - MS Wave
+
+## Part 2
+
+- Fix part 1
+    - Visualize input spectrogram
+    - Segment takes in two kinds of segment instead of listen to stream directly
+    - Rework noise detection
+        - FFT detection
+
