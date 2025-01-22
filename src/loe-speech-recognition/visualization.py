@@ -43,7 +43,7 @@ class Visualization:
         plt.tight_layout()
         plt.show()
 
-    def compute_mel_spectrogram(self):
+    def plot_mel_spectrogram(self):
         window = get_window("triang", self.n_fft)
         mel_spectrogram = librosa.feature.melspectrogram(
             y=self._audio, sr=self._sr, n_fft=self.n_fft, 
@@ -60,7 +60,7 @@ class Visualization:
         plt.tight_layout()
         plt.show()
 
-    def plot_log_mel_spectrum_and_mfcc(self):
+    def plot_mfcc(self):
         """
         Generates and plots the log Mel spectrogram and MFCCs of an audio clip with custom Mel filter settings.
         """
@@ -99,3 +99,7 @@ class Visualization:
         plt.tight_layout()
         plt.show()
 
+    def main(self) -> None:
+        self.plot_spectrogram()
+        self.plot_mel_spectrogram()
+        self.plot_mfcc()
