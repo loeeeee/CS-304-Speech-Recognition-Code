@@ -85,6 +85,7 @@ class _SpeechEndCounter:
 class Segmentation:
     stream: sd.InputStream
     audio_cache: queue.Queue
+    save_path: str = field(default="./segment_results")
 
     # Settings
     frame_size: ClassVar[int] = field(default=320)
@@ -115,7 +116,7 @@ class Segmentation:
 
     @no_type_check
     def write_to_wave(self, samples: np.ndarray, name: str) -> None:
-        path = os.path.join("segment_results", f"{name}.wav")
+        path = os.path.join(self.save_path, f"{name}.wav")
         sample_rate: int = self.stream.samplerate
         with wave.open(path, "wb") as wav:
             wav.setframerate(sample_rate)
@@ -227,7 +228,7 @@ class Segmentation:
 
     # ---------------
     @classmethod
-    def from_basic(cls, sample_rate: int = 44100, channels: List[int] = [1]) -> Self:
+    def from_basic(cls, sample_rate: int = 44100, channels: List[int] = [1], save_path: str = "./segment_results") -> Self:
         audio_cache: queue.Queue = queue.Queue()
         mapping = [c - 1 for c in channels]  # Channel numbers start with 1
 
@@ -244,7 +245,7 @@ class Segmentation:
             callback=audio_callback,
             dtype=np.int16,
             ) # Specify the 16-bit data type
-        result: Self = cls(stream, audio_cache)
+        result: Self = cls(stream, audio_cache, save_path)
 
         logger.info(f"Create Segmentation object from basic settings")
         return result
