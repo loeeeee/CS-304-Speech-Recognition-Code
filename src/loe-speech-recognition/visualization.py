@@ -7,6 +7,11 @@ import numpy as np
 import librosa
 import librosa.display
 
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(filename='runtime.log', level=logging.DEBUG, 
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 @dataclass
 class Visualization:
@@ -14,13 +19,18 @@ class Visualization:
     audio_path: str
     n_fft: int = field(default=320)
     hop_length: int = field(default=160)
+    n_mels: int = field(default=40)
+    n_mfcc: int = field(default=13)
+    fmin: float = field(default=133.33)
+    fmax: float = field(default=6855.4976)
 
     # Internals
     _audio: np.ndarray = field(init=False)
     _sr: float = field(init=False)
 
     def __post_init__(self) -> None:
-        self._audio, self._sr = librosa.load(self.audio_path)
+        self._audio, self._sr = librosa.load(self.audio_path, sr=None)
+        logger.info(f"Sample Rate: {self._sr}")
 
     def plot_spectrogram(self, title="Spectrogram"):
         """
@@ -43,4 +53,49 @@ class Visualization:
         plt.tight_layout()
         plt.show()
 
-    
+    def compute_mel_spectrogram(self):
+        window = get_window("triang", self.n_fft)
+        mel_spectrogram = librosa.feature.melspectrogram(
+            y=self._audio, sr=self._sr, n_fft=self.n_fft, 
+            hop_length=self.hop_length, n_mels=self.n_mels, 
+            fmin=133.33, fmax=6855.4976,
+            window=window
+            )
+        mel_spectrogram_db = librosa.power_to_db(mel_spectrogram, ref=np.max)
+
+        plt.figure(figsize=(10, 4))
+        librosa.display.specshow(mel_spectrogram_db, sr=self._sr, hop_length=self.hop_length, x_axis='time', y_axis='mel')
+        plt.colorbar(format='%+2.0f dB')
+        plt.title("Mel Spectrogram")
+        plt.tight_layout()
+        plt.show()
+
+    def plot_log_mel_spectrum_and_mfcc(self):
+        """
+        Generates and plots the log Mel spectrogram and MFCCs of an audio clip with custom Mel filter settings.
+        """
+        # Compute mel spectrogram
+        mel_spectrogram = librosa.feature.melspectrogram(y=self._audio, sr=self._sr, n_fft=self.n_fft, hop_length=self.hop_length, n_mels=self.n_mels, fmin=self.fmin, fmax=self.fmax)
+        
+        # Convert to log scale
+        log_mel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=np.max)
+
+        # Compute MFCCs
+        mfccs = librosa.feature.mfcc(S=log_mel_spectrogram, sr=self._sr, n_mfcc=self.n_mfcc)
+
+        # Plot log mel spectrogram
+        plt.figure(figsize=(10, 4))
+        librosa.display.specshow(log_mel_spectrogram, sr=self._sr, hop_length=self.hop_length, x_axis='time', y_axis='mel',fmin=self.fmin, fmax=self.fmax)
+        plt.colorbar(format='%+2.0f dB')
+        plt.title(f"Log Mel Spectrogram")
+        plt.tight_layout()
+        plt.show()
+
+        # Plot MFCCs
+        plt.figure(figsize=(10, 4))
+        librosa.display.specshow(mfccs, sr=self._sr, hop_length=self.hop_length, x_axis='time')
+        plt.colorbar()
+        plt.title(f"MFCC")
+        plt.tight_layout()
+        plt.show()
+
