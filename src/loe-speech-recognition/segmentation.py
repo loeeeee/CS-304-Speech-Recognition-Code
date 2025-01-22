@@ -1,6 +1,6 @@
 import queue
 import sys
-from typing import List, Literal, Self, no_type_check
+from typing import ClassVar, List, Literal, Self, Union, no_type_check
 from dataclasses import dataclass, field
 import itertools
 import os
@@ -52,24 +52,61 @@ class NoiseFloor:
     def noise_floor(self) -> int:
         return self._noise_floor
 
+class _SegmentationDone(Exception):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+
+@dataclass
+class _SpeechEndCounter:
+    frame_count_threshold: int
+
+    # Internals
+    _counter: int = field(default=0)
+
+    def _check(self) -> None:
+        if self._counter >= self.frame_count_threshold:
+            logger.info(f"Speech ending empty frame threshold meet")
+            raise _SegmentationDone
+
+    def no_speech(self) -> None:
+        self._counter += 1
+        self._check()
+
+    def has_speech(self) -> None:
+        # Reset counter when speech detected
+        self._counter = 0
+
 @dataclass
 class Segmentation:
     stream: sd.InputStream
     audio_cache: queue.Queue
 
     # Settings
-    frame_size: int = field(default=640)
-    speech_high_threshold: int = field(default=512) # Start volume
-    speech_low_threshold: int = field(default=64) # Cut volume
-    silence_duration_threshold: float = field(default=0.1)
+    frame_size: ClassVar[int] = field(default=320)
+    speech_high_threshold: ClassVar[int] = field(default=512) # Start volume
+    speech_low_threshold: ClassVar[int] = field(default=64) # Cut volume
+    silence_duration_threshold: ClassVar[float] = field(default=0.1)
 
     # Internals
     _noise_floor: NoiseFloor = field(default_factory=NoiseFloor) # May use default factory for an init measurement
-    _speech_started: bool = field(default=False)
-    _speech_ended: bool = field(default=True)
+    # This flag means that a speech signal is detected, and goes on continuously. This flag will be reset when signal drop below low threshold
+    _isSpeechBetweenHighLowThreshold: bool = field(default=False) 
+    # This flag means that a speech signal is detected in this input session. This flag will only be reset on next input session
+    _isSpeechEverHighThreshold: bool = field(default=False)
+    # This flag means that a speech signal is no longer detected. This flag will be reset when a signal drop below low threshold
+    _isSpeechBelowLowThreshold: bool = field(default=True)
+    _speech_ended_cnt: _SpeechEndCounter = field(init=False) # Count how many frames with no speech
     _results: List[np.ndarray] = field(default_factory=list)
     _per_frame_time: float = field(init=False) # Initialize this when main is called
     _maximum_silence_frames: int = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._per_frame_time = 1 / self.stream.samplerate * self.frame_size
+        self._maximum_silence_frames = int(self.silence_duration_threshold / self._per_frame_time)
+        self._speech_ended_cnt = _SpeechEndCounter(self._maximum_silence_frames)
+        logger.info(f"Single frame is {self._per_frame_time}s")
+        logger.info(f"Maximum silence frames count is {self._maximum_silence_frames}")
+        return
 
     @no_type_check
     def write_to_wave(self, samples: np.ndarray, name: str) -> None:
@@ -86,30 +123,28 @@ class Segmentation:
 
     def main(self) -> None:
         """The main loop where hit-to-talk happens"""
-        self._per_frame_time = 1 / self.stream.samplerate * self.frame_size
-        self._maximum_silence_frames = int(self.silence_duration_threshold / self._per_frame_time)
-        logger.info(f"Single frame is {self._per_frame_time}s")
-        logger.info(f"Maximum silence frames count is {self._maximum_silence_frames}")
-
         try:
             with self.stream:
                 logger.debug("Entering recording stream")
                 input("Press any key to start recording")
-                print("Recording started")
+                self._isSpeechEverHighThreshold = False # Reset flag
+                # Clean up cache and set noise floor before starting
                 self.initialize_noise_floor()
+                print("Recording started")
                 while True:
                     # Routine
+                    time.sleep(self.silence_duration_threshold + self._per_frame_time) # Don't draw too much CPU
                     self.routine()
-                    time.sleep(2) # Don't draw too much CPU
 
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, _SegmentationDone):
             print("\nGracefully exiting")
             # One last routine to clean up queue
             logger.info("One last routine")
             self.routine()
-            for index, segment in enumerate(self._results):
-                self.write_to_wave(segment, str(index).zfill(2))
-        ...
+        
+        result = np.concatenate(self._results)
+        self.write_to_wave(result, "result")
+        return
 
     def routine(self) -> None:
         """Actually do things here"""
@@ -123,60 +158,45 @@ class Segmentation:
         trimmed_audio = audio[:self.frame_size*num_of_frames]
         iter_audio_frames = itertools.chain.from_iterable((trimmed_audio.reshape((-1, self.frame_size)), [audio[self.frame_size*num_of_frames:]]))
 
-        # First Pass
-        markers: List[Literal["start", "middle", "end", False, True]] = []
         for frame in iter_audio_frames:
-            if self._speech_started:
+            if self._isSpeechEverHighThreshold:
+                self._results.append(frame)
+
+            if self._isSpeechBetweenHighLowThreshold:
                 # Detect speech continues
                 if self.detect_speech(frame, threshold="low"):
-                    markers.append("middle")
+                    # Speech drop below low threshold
                     logger.debug("Speech continued")
+                    self._speech_ended_cnt.has_speech()
                 else:
-                    self._speech_ended = True
-                    self._speech_started = False
-                    markers.append("end")
+                    # Speech remain between high low threshold
                     logger.info("Speech stopped")
+                    self._isSpeechBetweenHighLowThreshold = False
+                    self._speech_ended_cnt.no_speech()
             else:
                 # Detect speech start
                 if self.detect_speech(frame, threshold="high"):
-                    markers.append("start")
-                    self._speech_started = True
-                    self._speech_ended = False
+                    # Speech detected
                     logger.info("Speech recognized")
+                    self._isSpeechBetweenHighLowThreshold = True
+                    self._isSpeechEverHighThreshold = True
+                    self._speech_ended_cnt.has_speech()
                 else:
+                    self._speech_ended_cnt.no_speech()
                     # Update noise floor
-                    markers.append(False)
-        logger.debug(f"Markers: {markers}")
+                    pass
+            pass
 
-        # Change markers based on the silence threshold
-        for index, marker in enumerate(markers[1:-2], start=1):
-            if not marker:
-                if markers[index - 1] and any(markers[index+1: index+self._maximum_silence_frames+1]): # True False False False True
-                    markers[index] = True
-                    logger.debug("Mark one silence frame as speech")
-        logger.debug(f"Next markers: {markers}")
-
-        # Second pass
-        background_samples: List[np.ndarray] = []
-        # Have to reset iterator
-        iter_audio_frames = itertools.chain.from_iterable((trimmed_audio.reshape((-1, self.frame_size)), [audio[self.frame_size*num_of_frames:]]))
-        for frame, marker in zip(iter_audio_frames, markers):
-            if marker == "start":
-                self._results.append(frame) # Add new words to the results
-                logger.debug("Add new speech to result")
-            elif marker == "middle" or marker == "end" or marker == True:
-                self._results[-1] = np.concatenate((self._results[-1], frame))
-            else:
-                background_samples.append(frame)
-        
         # logger.debug(f"Result: {self._results}")
 
         # Update background noise
-        if background_samples:
-            self._noise_floor.update_noise_floor(np.concatenate(background_samples))
-            logger.debug(f"Find {len(background_samples)} background samples")
-        else:
-            logger.debug("No background samples found")
+        # if background_samples:
+        #     self._noise_floor.update_noise_floor(np.concatenate(background_samples))
+        #     logger.debug(f"Find {len(background_samples)} background samples")
+        # else:
+        #     logger.debug("No background samples found")
+
+        # Raise Done Flag when meeting ending threshold
         return
 
     def detect_speech(self, frames: np.ndarray, threshold: Literal["high", "low"]) -> bool:
@@ -233,13 +253,13 @@ class Segmentation:
 
 
 def main() -> None:
+    Segmentation.speech_high_threshold = 2048
+    Segmentation.speech_low_threshold = 1024
+    Segmentation.silence_duration_threshold = 0.6
     seg = Segmentation.from_basic(
         sample_rate=16000
     )
-    seg.speech_high_threshold = 2048
-    seg.speech_low_threshold = 1024
     # Words
-    seg.silence_duration_threshold = 0.6
     seg.main()
 
 
