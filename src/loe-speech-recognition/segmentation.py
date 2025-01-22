@@ -73,11 +73,13 @@ class _SpeechEndCounter:
 
     def no_speech(self) -> None:
         self._counter += 1
+        logger.debug(f"Counter is now {self._counter}")
         self._check()
 
     def has_speech(self) -> None:
         # Reset counter when speech detected
         self._counter = 0
+        logger.debug("Counter reset")
 
 @dataclass
 class Segmentation:
@@ -141,9 +143,6 @@ class Segmentation:
 
         except (KeyboardInterrupt, _SegmentationDone):
             print("\nGracefully exiting")
-            # One last routine to clean up queue
-            logger.info("One last routine")
-            self.routine()
         
         if self._results:
             result = np.concatenate(self._results)
@@ -171,14 +170,15 @@ class Segmentation:
             if self._isSpeechBetweenHighLowThreshold:
                 # Detect speech continues
                 if self.detect_speech(frame, threshold="low"):
-                    # Speech drop below low threshold
+                    # Speech remain between high low threshold
                     logger.debug("Speech continued")
                     self._speech_ended_cnt.has_speech()
                 else:
-                    # Speech remain between high low threshold
+                    # Speech drop below low threshold
                     logger.info("Speech stopped")
                     self._isSpeechBetweenHighLowThreshold = False
                     self._speech_ended_cnt.no_speech()
+                    logger.debug(f"Current frame: {frame}")
             else:
                 # Detect speech start
                 if self.detect_speech(frame, threshold="high"):
@@ -189,10 +189,9 @@ class Segmentation:
                     self._speech_ended_cnt.has_speech()
                 else:
                     if self._isSpeechEverHighThreshold:
+                        logger.info("Speech no longer detected")
                         self._speech_ended_cnt.no_speech()
                     # Update noise floor
-                    pass
-            pass
 
         # logger.debug(f"Result: {self._results}")
 
@@ -208,8 +207,9 @@ class Segmentation:
 
     def detect_speech(self, frames: np.ndarray, threshold: Literal["high", "low"]) -> bool:
         # Detect Speech
-        total_energy = np.abs(frames) - self._noise_floor.noise_floor # Subtract noise floor for more consistent performance
+        total_energy = np.abs(frames) # - self._noise_floor.noise_floor) # Subtract noise floor for more consistent performance
         average_energy = np.average(total_energy)
+        logger.debug(f"Average energy: {average_energy}")
 
         if threshold == "high" and average_energy > self.speech_high_threshold:
                 return True
@@ -260,8 +260,9 @@ class Segmentation:
 
 
 def main() -> None:
-    Segmentation.speech_high_threshold = 512
-    Segmentation.speech_low_threshold = 64
+    # Good Mic Setup
+    Segmentation.speech_high_threshold = 128
+    Segmentation.speech_low_threshold = 16
     Segmentation.silence_duration_threshold = 0.2
     seg = Segmentation.from_basic(
         sample_rate=16000
