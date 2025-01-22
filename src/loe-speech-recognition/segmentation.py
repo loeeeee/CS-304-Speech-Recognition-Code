@@ -145,7 +145,7 @@ class Segmentation:
             print("\nGracefully exiting")
         
         if self._results:
-            result = np.concatenate(self._results)
+            result = np.concatenate(self._results[:-self._speech_ended_cnt.frame_count_threshold])
             self.write_to_wave(result, "result")
         else:
             logger.warning("No results from segmentation")
@@ -178,7 +178,7 @@ class Segmentation:
                     logger.info("Speech stopped")
                     self._isSpeechBetweenHighLowThreshold = False
                     self._speech_ended_cnt.no_speech()
-                    logger.debug(f"Current frame: {frame}")
+                    # logger.debug(f"Current frame: {frame}")
             else:
                 # Detect speech start
                 if self.detect_speech(frame, threshold="high"):
@@ -194,15 +194,6 @@ class Segmentation:
                     # Update noise floor
 
         # logger.debug(f"Result: {self._results}")
-
-        # Update background noise
-        # if background_samples:
-        #     self._noise_floor.update_noise_floor(np.concatenate(background_samples))
-        #     logger.debug(f"Find {len(background_samples)} background samples")
-        # else:
-        #     logger.debug("No background samples found")
-
-        # Raise Done Flag when meeting ending threshold
         return
 
     def detect_speech(self, frames: np.ndarray, threshold: Literal["high", "low"]) -> bool:
