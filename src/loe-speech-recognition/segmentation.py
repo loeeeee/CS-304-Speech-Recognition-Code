@@ -63,6 +63,9 @@ class _SpeechEndCounter:
     # Internals
     _counter: int = field(default=0)
 
+    def __post_init__(self) -> None:
+        logger.info(f"Empty frame count threshold is {self.frame_count_threshold}")
+
     def _check(self) -> None:
         if self._counter >= self.frame_count_threshold:
             logger.info(f"Speech ending empty frame threshold meet")
@@ -142,8 +145,11 @@ class Segmentation:
             logger.info("One last routine")
             self.routine()
         
-        result = np.concatenate(self._results)
-        self.write_to_wave(result, "result")
+        if self._results:
+            result = np.concatenate(self._results)
+            self.write_to_wave(result, "result")
+        else:
+            logger.warning("No results from segmentation")
         return
 
     def routine(self) -> None:
@@ -182,7 +188,8 @@ class Segmentation:
                     self._isSpeechEverHighThreshold = True
                     self._speech_ended_cnt.has_speech()
                 else:
-                    self._speech_ended_cnt.no_speech()
+                    if self._isSpeechEverHighThreshold:
+                        self._speech_ended_cnt.no_speech()
                     # Update noise floor
                     pass
             pass
@@ -253,9 +260,9 @@ class Segmentation:
 
 
 def main() -> None:
-    Segmentation.speech_high_threshold = 2048
-    Segmentation.speech_low_threshold = 1024
-    Segmentation.silence_duration_threshold = 0.6
+    Segmentation.speech_high_threshold = 512
+    Segmentation.speech_low_threshold = 64
+    Segmentation.silence_duration_threshold = 0.2
     seg = Segmentation.from_basic(
         sample_rate=16000
     )
