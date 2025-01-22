@@ -33,16 +33,6 @@ class Visualization:
         logger.info(f"Sample Rate: {self._sr}")
 
     def plot_spectrogram(self, title="Spectrogram"):
-        """
-        Generates and plots a spectrogram of an audio clip.
-
-        Args:
-            audio (np.ndarray): The audio signal as a numpy array.
-            sr (int): The sample rate of the audio signal.
-            title (str, optional): The title of the plot. Defaults to "Spectrogram".
-            n_fft (int, optional): The length of the FFT window. Defaults to 2048.
-            hop_length (int, optional): The hop length between FFT windows. Defaults to 512.
-        """
         spectrogram = librosa.stft(self._audio, n_fft=self.n_fft, hop_length=self.hop_length)
         spectrogram_db = librosa.amplitude_to_db(np.abs(spectrogram), ref=np.max)
 
@@ -58,7 +48,7 @@ class Visualization:
         mel_spectrogram = librosa.feature.melspectrogram(
             y=self._audio, sr=self._sr, n_fft=self.n_fft, 
             hop_length=self.hop_length, n_mels=self.n_mels, 
-            fmin=133.33, fmax=6855.4976,
+            fmin=self.fmin, fmax=self.fmax,
             window=window
             )
         mel_spectrogram_db = librosa.power_to_db(mel_spectrogram, ref=np.max)
@@ -82,20 +72,30 @@ class Visualization:
 
         # Compute MFCCs
         mfccs = librosa.feature.mfcc(S=log_mel_spectrogram, sr=self._sr, n_mfcc=self.n_mfcc)
-
-        # Plot log mel spectrogram
-        plt.figure(figsize=(10, 4))
-        librosa.display.specshow(log_mel_spectrogram, sr=self._sr, hop_length=self.hop_length, x_axis='time', y_axis='mel',fmin=self.fmin, fmax=self.fmax)
-        plt.colorbar(format='%+2.0f dB')
-        plt.title(f"Log Mel Spectrogram")
-        plt.tight_layout()
-        plt.show()
+        delta_mfccs = librosa.feature.delta(mfccs)
+        delta_delta_mfccs = librosa.feature.delta(delta_mfccs)
 
         # Plot MFCCs
         plt.figure(figsize=(10, 4))
         librosa.display.specshow(mfccs, sr=self._sr, hop_length=self.hop_length, x_axis='time')
         plt.colorbar()
         plt.title(f"MFCC")
+        plt.tight_layout()
+        plt.show()
+
+        # Plot delta MFCCs
+        plt.figure(figsize=(10, 4))
+        librosa.display.specshow(delta_mfccs, sr=self._sr, hop_length=self.hop_length, x_axis='time')
+        plt.colorbar()
+        plt.title(f"Delta MFCC")
+        plt.tight_layout()
+        plt.show()
+
+        # Plot delta delta MFCCs
+        plt.figure(figsize=(10, 4))
+        librosa.display.specshow(delta_delta_mfccs, sr=self._sr, hop_length=self.hop_length, x_axis='time')
+        plt.colorbar()
+        plt.title(f"Delta Delta MFCC")
         plt.tight_layout()
         plt.show()
 
