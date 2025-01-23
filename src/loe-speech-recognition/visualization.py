@@ -59,7 +59,7 @@ class Visualization:
 
     def _fft(self) -> Tuple[np.ndarray, np.ndarray]:
         num_of_windows: int = self._audio.shape[0] // self.frame_size
-        # audio_frames = np.copy(self._audio)[:num_of_frames*self.frame_size].reshape((-1, self.frame_size))
+        audio_frames = np.copy(self._audio)[:num_of_frames*self.frame_size].reshape((-1, self.frame_size))
         results: List[np.ndarray] = []
         segment_timestamp: List[float] = []
         for index, frames in enumerate(zip(audio_frames[:-3], audio_frames[1:-2], audio_frames[2:])):
@@ -158,7 +158,7 @@ class Visualization:
         print(Pxx.shape)
         print(freqs.shape)
         print(bins.shape)
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(10, 4))
         plt.pcolormesh(bins, freqs, 10*np.log10(Pxx), shading='gouraud') # Convert to dB
         plt.yscale('log')  # Set y-axis to logarithmic scale
         plt.ylim(20, self._sr/2) # Limit frequency range. Important for log scale
@@ -166,6 +166,7 @@ class Visualization:
         plt.ylabel('Frequency (Hz)')
         plt.title('Log Spectrogram')
         plt.colorbar(label='Intensity (dB)')
+        plt.tight_layout()
         plt.show()
 
     def plot_cepstrogram_2(self):
