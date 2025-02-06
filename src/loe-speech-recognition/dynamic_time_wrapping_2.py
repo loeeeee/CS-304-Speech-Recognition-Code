@@ -48,16 +48,19 @@ def dynamic_time_wrapping(seq1, seq2, distance_metric=euclidean_distance, return
     for i in range(1, n + 1):
         for j in range(1, m + 1):
             cost = distance_metric(seq1[i - 1], seq2[j - 1])
-            insertion_cost = cost_matrix[i - 1, j] # Level
+            insertion_cost = cost_matrix[i, j - 1] # Level
+            if i - 2 < 0:
+                shrink_cost = np.inf
+            else:
+                shrink_cost = cost_matrix[i - 2, j - 1] # Super Diagonal
             match_cost = cost_matrix[i - 1, j - 1] # Dia
-            skip_cost = cost_matrix[i - 1, j - 2] # Super Diagonal
 
-            min_cost = min(insertion_cost, skip_cost, match_cost)
+            min_cost = min(insertion_cost, shrink_cost, match_cost)
             cost_matrix[i, j] = cost + min_cost
 
             if min_cost == insertion_cost:
-                path_matrix[i, j] = 1  # Up (Insertion)
-            elif min_cost == skip_cost:
+                path_matrix[i, j] = 1  # Level (Insertion)
+            elif min_cost == shrink_cost:
                 path_matrix[i, j] = 2  # Super diagonal
             else: # min_cost == match_cost (or could be equal to multiple, diagonal preferred if tied - standard DTW)
                 path_matrix[i, j] = 3  # Diagonal (Match)
@@ -71,19 +74,22 @@ def dynamic_time_wrapping(seq1, seq2, distance_metric=euclidean_distance, return
         j = m
         while i > 0 or j > 0:
             path.append((i - 1, j - 1)) # Adjust indices to be 0-based for sequences
+            print(path[-1])
             direction = path_matrix[i, j]
-            if direction == 1:          # Up (Insertion)
-                i = i - 1
+            if direction == 1:          # Level (Insertion)
+                j = j - 1
             elif direction == 2:        # Super diagonal
-                j = j - 2
-                i = i - 1
+                i = i - 2
+                j = j - 1
             elif direction == 3:        # Diagonal (Match)
                 i = i - 1
                 j = j - 1
             else:                       # direction == 0 (Start) - should not happen normally, but for safety
                 break
 
-        return cost_matrix[n, m], path[::-1] # Reverse path to be from start to end
+        formatted_path = np.array([[i[0] for i in reversed(path)], [i[1] for i in reversed(path)]])
+
+        return cost_matrix[n, m], cost_matrix, formatted_path # Reverse path to be from start to end
 
 
 def dynamic_time_wrapping_fast(sequences: np.ndarray, seq2, distance_metric=euclidean_distance, return_path=False):
@@ -123,7 +129,7 @@ def dynamic_time_wrapping_fast(sequences: np.ndarray, seq2, distance_metric=eucl
             cost = distance_metric(seq1[i - 1], seq2[j - 1])
             insertion_cost = cost_matrix[i - 1, j] # Level
             match_cost = cost_matrix[i - 1, j - 1] # Dia
-            skip_cost = cost_matrix[i - 1, j - 2] # Super Diagonal
+            skip_cost = cost_matrix[i - 2, j - 1] # Super Diagonal
 
             min_cost = min(insertion_cost, skip_cost, match_cost)
             cost_matrix[i, j] = cost + min_cost
@@ -148,8 +154,8 @@ def dynamic_time_wrapping_fast(sequences: np.ndarray, seq2, distance_metric=eucl
             if direction == 1:          # Up (Insertion)
                 i = i - 1
             elif direction == 2:        # Super diagonal
-                j = j - 2
-                i = i - 1
+                j = j - 1
+                i = i - 2
             elif direction == 3:        # Diagonal (Match)
                 i = i - 1
                 j = j - 1
