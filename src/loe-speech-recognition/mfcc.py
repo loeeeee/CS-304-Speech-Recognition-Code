@@ -35,11 +35,11 @@ def compute_mfcc(signal, sr, n_mfcc=13):
     # 2. Compute the Mel spectrogram
     # Librosa's mfcc function does this internally, but if you need the spectrogram
     # for other purposes, you can calculate it separately:
-    # mel_spectrogram = librosa.feature.melspectrogram(y=signal, sr=sr, n_mels=128)  # Adjust n_mels as needed
-    # log_mel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=np.max)  # Convert to dB scale
+    mel_spectrogram = librosa.feature.melspectrogram(y=signal, sr=sr, n_mels=40, n_fft=320, hop_length=160, fmin=133.33, fmax=6855.4976)  # Adjust n_mels as needed
+    log_mel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=np.max)  # Convert to dB scale
 
     # 3. Compute MFCCs
-    mfccs = librosa.feature.mfcc(y=signal, sr=sr, n_mfcc=n_mfcc)  # Uses log-mel spectrogram internally
+    mfccs = librosa.feature.mfcc(S=log_mel_spectrogram, sr=sr, n_mfcc=n_mfcc)  # Uses log-mel spectrogram internally
 
     # 4. Compute delta and delta-delta MFCCs (Optional but often useful)
     delta_mfccs = librosa.feature.delta(mfccs)
