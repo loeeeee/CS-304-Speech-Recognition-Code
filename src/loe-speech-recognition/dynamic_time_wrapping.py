@@ -1,4 +1,10 @@
 import numpy as np
+from numba import njit, jit
+
+from typing import List
+
+def euclidean_distance(x, y):
+    return np.sqrt(np.sum((x - y)**2))
 
 def _traceback(D):
     i, j = np.array(D.shape) - 2
@@ -16,7 +22,7 @@ def _traceback(D):
         q.insert(0, j)
     return np.array(p), np.array(q)
 
-def dynamic_time_warping(sequence1, sequence2, distance_function, warping_window=np.inf, step_weight=1.0):
+def dynamic_time_wrapping(sequence1, sequence2, distance_function=euclidean_distance, warping_window=np.inf, step_weight=1.0):
     """
     Computes Dynamic Time Warping (DTW) of two sequences.
 
@@ -77,20 +83,17 @@ def dynamic_time_warping(sequence1, sequence2, distance_function, warping_window
     elif len(sequence2) == 1:
         path = range(len(sequence1)), np.zeros(len(sequence1))
     else:
-        path = _traceback(extended_cost_matrix)  # Assuming _traceback is defined
+        path = _traceback(extended_cost_matrix)
 
     return accumulated_cost_matrix[-1, -1], cost_matrix, accumulated_cost_matrix, path
 
-def euclidean_distance(x, y):
-    return np.sqrt(np.sum((x - y)**2))
-
 # Placeholder that has the same functionality
 ## Could be paralleled by numba
-def dynamic_time_warping_efficiently(templates: np.ndarray, sample, labels,distance_function=euclidean_distance, warping_window=np.inf, step_weight=1.0):
+def dynamic_time_warping_efficiently(templates: List[np.ndarray], sample, labels,distance_function=euclidean_distance, warping_window=np.inf, step_weight=1.0):
     dtw_distance_min = 0x3f3f3f3f
     results = None
-    for i, label in zip(range(templates.shape[-1]), labels):
-        dtw_distance, cost_matrix, accumulated_cost_matrix, path = dynamic_time_warping(templates[...,i], sample, distance_function, warping_window, step_weight)
+    for template, label in zip(templates, labels):
+        dtw_distance, cost_matrix, accumulated_cost_matrix, path = dynamic_time_warping(template, sample, distance_function, warping_window, step_weight)
         if dtw_distance < dtw_distance_min:
             dtw_distance_min = dtw_distance
             results = dtw_distance, cost_matrix, accumulated_cost_matrix, path, label
