@@ -59,7 +59,7 @@ class Visualization:
 
     def _fft(self) -> Tuple[np.ndarray, np.ndarray]:
         num_of_windows: int = self._audio.shape[0] // self.frame_size
-        audio_frames = np.copy(self._audio)[:num_of_frames*self.frame_size].reshape((-1, self.frame_size))
+        audio_frames = np.copy(self._audio)[:num_of_windows*self.frame_size].reshape((-1, self.frame_size))
         results: List[np.ndarray] = []
         segment_timestamp: List[float] = []
         for index, frames in enumerate(zip(audio_frames[:-3], audio_frames[1:-2], audio_frames[2:])):

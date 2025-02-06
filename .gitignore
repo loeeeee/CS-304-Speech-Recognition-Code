@@ -177,3 +177,5 @@ playground-*
 segment_results/
 visualization_results/
 /recordings
+
+/examples
