@@ -5,29 +5,23 @@ from scipy.stats import multivariate_normal
 
 from mfcc import compute_mfcc
 
-# Assume you have functions from previous assignments to:
-# 1. `compute_features(audio_data, sample_rate)`: Computes 39-dimensional features (MFCCs/cepstra, delta, double delta) from audio data and sample rate.
-#    This function should also handle mean subtraction and variance normalization as required.
-
-# --- Hyperparameters ---
-NUM_STATES = 5 # Number of states in each HMM
-FEATURE_DIM = 39 # Dimension of feature vectors
-NUM_DIGITS = 10 # Digits 0-9
+NUM_STATES = 5 
+FEATURE_DIM = 39
+NUM_DIGITS = 10 
 digits = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
-NUM_TRAIN_RECORDS_PER_DIGIT = 10 # Based on the assignment description
-NUM_TEST_RECORDS_PER_DIGIT = 10 # Based on the assignment description
-MAX_ITERATIONS_SEGM_KMEANS = 50 # Maximum iterations for segmental K-means
-NUM_MIXTURES = 4 # Number of Gaussian mixtures per state for Problem 3
+NUM_TRAIN_RECORDS_PER_DIGIT = 10
+NUM_TEST_RECORDS_PER_DIGIT = 10
+MAX_ITERATIONS_SEGM_KMEANS = 50 
+NUM_MIXTURES = 4
 
-# --- HMM Class for Gaussian Mixture Model (GMM) per State ---
 class HMM_GMM:
     def __init__(self, num_states, feature_dim, num_mixtures):
         self.num_states = num_states
         self.feature_dim = feature_dim
         self.num_mixtures = num_mixtures
-        self.transition_probs = None      # (num_states, num_states) - Transition probabilities
-        self.mixture_weights = None     # (num_states, num_mixtures) - Mixture weights for each state
-        self.means = None               # (num_states, num_mixtures, feature_dim) - Means of Gaussian mixtures
+        self.transition_probs = None      # (num_states, num_states) 
+        self.mixture_weights = None     # (num_states, num_mixtures) Mixture weights for each state
+        self.means = None               # (num_states, num_mixtures, feature_dim) Means of Gaussian mixtures
         self.covariances = None         # (num_states, num_mixtures, feature_dim, feature_dim) - Covariances of Gaussian mixtures
 
     def initialize_params(self, training_sequences):
@@ -35,11 +29,11 @@ class HMM_GMM:
         self.transition_probs = np.zeros((self.num_states, self.num_states))
         self.mixture_weights = np.ones((self.num_states, self.num_mixtures)) / self.num_mixtures # Uniform mixture weights initially
         self.means = np.zeros((self.num_states, self.num_mixtures, self.feature_dim))
-        self.covariances = np.zeros((self.num_states, self.num_mixtures, self.feature_dim, self.feature_dim)) # Initialize covariances to zeros first
+        self.covariances = np.zeros((self.num_states, self.num_mixtures, self.feature_dim, self.feature_dim)) 
 
         for state in range(self.num_states):
             for mix_idx in range(self.num_mixtures):
-                self.covariances[state, mix_idx] = np.eye(self.feature_dim) # Initialize each covariance to identity matrix
+                self.covariances[state, mix_idx] = np.eye(self.feature_dim)
 
 
         # Initialize means by randomly picking data points from segments
@@ -53,22 +47,22 @@ class HMM_GMM:
                 state_data_points.extend(seq[start_index:end_index])
 
             if len(state_data_points) > 0:
-                if len(state_data_points) < self.num_mixtures: # Handle cases with fewer data points than mixtures
+                if len(state_data_points) < self.num_mixtures: 
                     indices = np.random.choice(len(state_data_points), size=len(state_data_points), replace=False)
                     selected_data = np.array(state_data_points)[indices]
                     for mix_idx in range(len(selected_data)):
                         self.means[state, mix_idx] = selected_data[mix_idx]
-                    for mix_idx in range(len(selected_data), self.num_mixtures): # Fill remaining mixtures with mean of available data if any
+                    for mix_idx in range(len(selected_data), self.num_mixtures):
                         self.means[state, mix_idx] = np.mean(state_data_points, axis=0) if state_data_points else np.zeros(self.feature_dim)
                 else:
                     indices = np.random.choice(len(state_data_points), size=self.num_mixtures, replace=False)
                     self.means[state, :] = np.array(state_data_points)[indices]
             else:
                 for mix_idx in range(self.num_mixtures):
-                    self.means[state, mix_idx] = np.zeros(self.feature_dim) # Default to zero if no data
+                    self.means[state, mix_idx] = np.zeros(self.feature_dim)
 
 
-        # Initialize transition probabilities (left-to-right, self-loop)
+        # Initialize transition probabilities 
         for i in range(self.num_states):
             if i < self.num_states - 1:
                 self.transition_probs[i, i] = 0.5
@@ -177,7 +171,7 @@ class HMM_GMM:
 
         log_delta = np.zeros((T, N))
         psi = np.zeros((T, N), dtype=int)
-        mixture_assignments = np.zeros((T,N), dtype=int) # To store mixture component assignments
+        mixture_assignments = np.zeros((T,N), dtype=int) 
 
 
         # Initialization (t=0)
@@ -189,29 +183,28 @@ class HMM_GMM:
             for j in range(N):
                 max_log_prob = -float('inf')
                 best_prev_state = 0
-                best_mixture_index = 0 # Keep track of best mixture index
+                best_mixture_index = 0 
                 for i in range(N):
                     for mix_idx in range(self.num_mixtures): # Iterate through mixtures to find best one
                         log_prob = log_delta[t-1, i] + np.log(self.transition_probs[i, j]) + np.log(self.mixture_weights[j, mix_idx]) + multivariate_normal.logpdf(observation_sequence[t], self.means[j, mix_idx], self.covariances[j, mix_idx]) # Include mixture weight in prob
                         if log_prob > max_log_prob:
                             max_log_prob = log_prob
                             best_prev_state = i
-                            best_mixture_index = mix_idx # Store the best mixture index
+                            best_mixture_index = mix_idx
 
-                log_delta[t, j] = max_log_prob # Assign the max log prob (already includes emission prob)
+                log_delta[t, j] = max_log_prob # Assign the max log prob
                 psi[t, j] = best_prev_state
-                mixture_assignments[t,j] = best_mixture_index # Store mixture index for best path
+                mixture_assignments[t,j] = best_mixture_index 
 
 
         # Termination
         best_path_prob = np.max(log_delta[T-1, :])
         last_state = np.argmax(log_delta[T-1, :])
 
-        # Backtracking - and also determine mixture assignments along the best path
         viterbi_path = [0] * T
         viterbi_path[T-1] = last_state
-        mixture_path_assignments = [0] * T # For storing mixture assignments in the best path
-        mixture_path_assignments[T-1] = mixture_assignments[T-1, last_state] # Get mixture assignment for last state and frame
+        mixture_path_assignments = [0] * T
+        mixture_path_assignments[T-1] = mixture_assignments[T-1, last_state] 
 
 
         for t in range(T-2, -1, -1):
@@ -247,33 +240,30 @@ class HMM_GMM:
         return log_prob
 
 
-# --- Data Loading Function (Provided by User - Same as before) ---
 def load_digit_data(data_dir):
     """Loads WAV files from the specified directory, using filenames as labels."""
     data = []
     labels = []
-    for filename in sorted(os.listdir(data_dir)): # sorted to ensure consistent order
+    for filename in sorted(os.listdir(data_dir)):
         if filename.endswith(".wav"):
             filepath = os.path.join(data_dir, filename)
             try:
-                y, sr = librosa.load(filepath, sr=None) # sr=None to preserve original sample rate
-                data.append(y)  # Extend the list, more memory efficient than appending arrays repeatedly.
-                label = filename[0] # Extract the first digit as the label
+                y, sr = librosa.load(filepath, sr=None) 
+                data.append(y) 
+                label = filename[0]
                 labels.append(label)
             except Exception as e:
                 print(f"Error loading file {filename}: {e}")
-                continue # Skip to the next file if there's an error
+                continue 
     return data, labels
 
 
-# --- Load Data using the provided function (Same as before) ---
-train_directory = "./recordings/voices/digits/train" # Adjust path if necessary
+train_directory = "./recordings/voices/digits/train"
 train_audio_data, train_labels = load_digit_data(train_directory)
-test_directory = "./recordings/voices/digits/test" # Adjust path if necessary
+test_directory = "./recordings/voices/digits/test" 
 test_audio_data, test_labels = load_digit_data(test_directory)
 
 
-# --- Feature Extraction (using loaded audio data - Same as before) ---
 training_features = []
 test_features = []
 digits_str = [str(i) for i in range(10)] # Digit labels as strings
@@ -283,7 +273,7 @@ for digit_label_str in digits_str:
     digit_train_audio = [train_audio_data[i] for i, label in enumerate(train_labels) if label == digit_label_str]
     digit_features = []
     for audio in digit_train_audio:
-        features = compute_mfcc(audio, sr=16000).T # Important: Implement this function
+        features = compute_mfcc(audio, sr=16000).T 
         digit_features.append(features)
     training_features.append(digit_features)
 
@@ -292,23 +282,21 @@ for digit_label_str in digits_str:
     digit_test_audio = [test_audio_data[i] for i, label in enumerate(test_labels) if label == digit_label_str]
     digit_features = []
     for audio in digit_test_audio:
-        features = compute_mfcc(audio, sr=16000).T # Important: Implement this function
+        features = compute_mfcc(audio, sr=16000).T 
         digit_features.append(features)
     test_features.append(digit_features)
 
 
-# --- Training GMM-HMMs (Problem 3) ---
 gm_hmms = {}
 print("Training GMM-HMMs...")
 for digit_index, digit_name in enumerate(digits):
     print(f"Training GMM-HMM for digit: {digit_name}")
-    digit_training_data = training_features[digit_index][:5] # Using first 5 training recordings
+    digit_training_data = training_features[digit_index][:5] 
     gmm_hmm = HMM_GMM(num_states=NUM_STATES, feature_dim=FEATURE_DIM, num_mixtures=NUM_MIXTURES) # Initialize GMM-HMM
     gmm_hmm.segmental_kmeans_train(digit_training_data)
     gm_hmms[digit_name] = gmm_hmm
 print("GMM-HMM training complete.")
 
-# --- Recognition and Accuracy Calculation (Problem 3) ---
 correct_predictions_gmm = 0
 total_predictions_gmm = 0
 

@@ -5,40 +5,30 @@ from scipy.stats import multivariate_normal
 
 from mfcc import compute_mfcc
 
-# Assume you have functions from previous assignments to:
-# 1. `compute_features(audio_data, sample_rate)`: Computes 39-dimensional features (MFCCs/cepstra, delta, double delta) from audio data and sample rate.
-#    This function should also handle mean subtraction and variance normalization as required.
-
-# --- Hyperparameters ---
-NUM_STATES = 5 # Number of states in each HMM
-FEATURE_DIM = 39 # Dimension of feature vectors
-NUM_DIGITS = 10 # Digits 0-9
+NUM_STATES = 5
+FEATURE_DIM = 39 
+NUM_DIGITS = 10 
 digits = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
-NUM_TRAIN_RECORDS_PER_DIGIT = 10 # Based on the assignment description, 10 recordings per digit for training (using 5 for training in problem 2 initially, but can be changed to 5 later for problem 2 specifically if needed)
-NUM_TEST_RECORDS_PER_DIGIT = 10 # Based on the assignment description, 10 recordings per digit for testing (using 5 for testing in problem 2 initially, but can be changed to 5 later for problem 2 specifically if needed)
-MAX_ITERATIONS_SEGM_KMEANS = 50 # Maximum iterations for segmental K-means
+NUM_TRAIN_RECORDS_PER_DIGIT = 10 
+NUM_TEST_RECORDS_PER_DIGIT = 10 
+MAX_ITERATIONS_SEGM_KMEANS = 50 
 
-# --- HMM Class for Single Gaussian per State ---
 class HMM_SingleGaussian:
     def __init__(self, num_states, feature_dim):
         self.num_states = num_states
         self.feature_dim = feature_dim
-        self.transition_probs = None # (num_states, num_states) - Transition probabilities
-        self.means = None          # (num_states, feature_dim) - Means of Gaussian emissions
-        self.covariances = None    # (num_states, feature_dim, feature_dim) - Covariances of Gaussian emissions
+        self.transition_probs = None # (num_states, num_states)
+        self.means = None          # (num_states, feature_dim) Means of Gaussian emissions
+        self.covariances = None    # (num_states, feature_dim, feature_dim) Covariances of Gaussian emissions
 
     def initialize_params(self, training_sequences):
-        """
-        Initializes HMM parameters using a simple segmentation of training data.
-        For simplicity, we'll use uniform segmentation and basic statistics.
-        """
         self.transition_probs = np.zeros((self.num_states, self.num_states))
         self.means = np.zeros((self.num_states, self.feature_dim))
         self.covariances = np.array([np.eye(self.feature_dim) for _ in range(self.num_states)]) # Initialize covariances to identity
 
         total_data_points_per_state = [0] * self.num_states
         sum_data_points_per_state = [np.zeros(self.feature_dim) for _ in range(self.num_states)]
-        state_assignments = [] # Store state assignments for each training sequence
+        state_assignments = [] 
 
         for seq in training_sequences:
             seq_len = len(seq)
@@ -49,10 +39,10 @@ class HMM_SingleGaussian:
                 start_index = state * segment_len
                 end_index = (state + 1) * segment_len if state < self.num_states - 1 else seq_len
                 segment_data = seq[start_index:end_index]
-                if len(segment_data) > 0: # Handle cases where segment_len is 0
+                if len(segment_data) > 0: 
                     self.means[state] += np.mean(segment_data, axis=0)
                     total_data_points_per_state[state] += len(segment_data)
-                    sum_data_points_per_state[state] = segment_data # Store segment data for covariance later
+                    sum_data_points_per_state[state] = segment_data
                 current_state_assignments.extend([state] * len(segment_data))
             state_assignments.append(current_state_assignments)
 
@@ -60,17 +50,14 @@ class HMM_SingleGaussian:
             if total_data_points_per_state[state] > 0:
                 self.means[state] /= total_data_points_per_state[state]
 
-        # Initialize covariances - using variance of the segments for now, can be improved
         for state in range(self.num_states):
-             if total_data_points_per_state[state] > 0 and len(sum_data_points_per_state[state]) > 1: # Need at least 2 points to calculate variance
+             if total_data_points_per_state[state] > 0 and len(sum_data_points_per_state[state]) > 1: 
                 self.covariances[state] = np.cov(sum_data_points_per_state[state].T)
-                # Ensure covariance is positive semi-definite (add small identity if needed)
                 if np.linalg.det(self.covariances[state]) <= 0:
                     self.covariances[state] += 0.01 * np.eye(self.feature_dim)
              else:
-                 self.covariances[state] = np.eye(self.feature_dim) # Default to identity if no data in state
+                 self.covariances[state] = np.eye(self.feature_dim)
 
-        # Initialize transition probabilities (left-to-right, self-loop)
         for i in range(self.num_states):
             if i < self.num_states - 1:
                 self.transition_probs[i, i] = 0.5
@@ -83,7 +70,7 @@ class HMM_SingleGaussian:
         """
         Trains the HMM using segmental K-means.
         """
-        self.initialize_params(training_sequences) # Initialize before starting iterations
+        self.initialize_params(training_sequences)
 
         for iteration in range(max_iterations):
             print(f"Segmental K-means Iteration: {iteration + 1}")
@@ -96,7 +83,7 @@ class HMM_SingleGaussian:
 
 
             for seq in training_sequences:
-                viterbi_path = self.viterbi(seq) # Get best state sequence using current model
+                viterbi_path = self.viterbi(seq) 
                 state_assignments_all_seqs.append(viterbi_path)
 
                 for t in range(len(seq)):
@@ -119,15 +106,15 @@ class HMM_SingleGaussian:
                 for t in range(len(seq)):
                     state = viterbi_path[t]
                     diff = seq[t] - new_means[state]
-                    new_covariances[state] += np.outer(diff, diff) # Sum of squared differences
+                    new_covariances[state] += np.outer(diff, diff) 
 
             for state in range(self.num_states):
-                if state_counts[state] > self.feature_dim + 1: # Need enough samples to estimate covariance robustly
+                if state_counts[state] > self.feature_dim + 1:
                     new_covariances[state] /= state_counts[state]
-                    # Regularization/smoothing of covariance (add small identity) - Important!
+                    # Regularization/smoothing of covariance
                     new_covariances[state] += 0.01 * np.eye(self.feature_dim)
                 else:
-                    new_covariances[state] = self.covariances[state].copy() # Keep old covariance if not enough data
+                    new_covariances[state] = self.covariances[state].copy()
 
             # Re-estimate transition probabilities
             for i in range(self.num_states):
@@ -139,7 +126,7 @@ class HMM_SingleGaussian:
                     self.transition_probs[i, :] = self.transition_probs[i,:].copy()
 
 
-            # Check for convergence (e.g., change in log-likelihood, or parameter change) - Simplified for now.
+            # Check for convergence
             prev_means = self.means.copy()
             self.means = new_means
             self.covariances = new_covariances
@@ -159,7 +146,7 @@ class HMM_SingleGaussian:
         N = self.num_states
 
         log_delta = np.zeros((T, N)) # log-probabilities of the most likely path ending in state j at time t
-        psi = np.zeros((T, N), dtype=int)     # Backtracking pointers
+        psi = np.zeros((T, N), dtype=int)   
 
         # Initialization (t=0)
         for s in range(N):
@@ -219,33 +206,30 @@ class HMM_SingleGaussian:
         return log_prob
 
 
-# --- Data Loading Function (Provided by User) ---
 def load_digit_data(data_dir):
     """Loads WAV files from the specified directory, using filenames as labels."""
     data = []
     labels = []
-    for filename in sorted(os.listdir(data_dir)): # sorted to ensure consistent order
+    for filename in sorted(os.listdir(data_dir)):
         if filename.endswith(".wav"):
             filepath = os.path.join(data_dir, filename)
             try:
-                y, sr = librosa.load(filepath, sr=None) # sr=None to preserve original sample rate
-                data.append(y)  # Extend the list, more memory efficient than appending arrays repeatedly.
-                label = filename[0] # Extract the first digit as the label
+                y, sr = librosa.load(filepath, sr=None)
+                data.append(y)
+                label = filename[0]
                 labels.append(label)
             except Exception as e:
                 print(f"Error loading file {filename}: {e}")
-                continue # Skip to the next file if there's an error
+                continue
     return data, labels
 
 
-# --- Load Data using the provided function ---
-train_directory = "./recordings/voices/digits/train" # Adjust path if necessary
+train_directory = "./recordings/voices/digits/train" 
 train_audio_data, train_labels = load_digit_data(train_directory)
-test_directory = "./recordings/voices/digits/test" # Adjust path if necessary
+test_directory = "./recordings/voices/digits/test"
 test_audio_data, test_labels = load_digit_data(test_directory)
 
 
-# --- Feature Extraction (using loaded audio data) ---
 training_features = []
 test_features = []
 digits_str = [str(i) for i in range(10)] # Digit labels as strings
@@ -255,21 +239,20 @@ for digit_label_str in digits_str:
     digit_train_audio = [train_audio_data[i] for i, label in enumerate(train_labels) if label == digit_label_str] # Get audio for each digit
     digit_features = []
     for audio in digit_train_audio:
-        features = compute_mfcc(audio, sr=16000).T # Important: Pass sample rate if needed by your compute_features function, using sr=None from librosa.load
+        features = compute_mfcc(audio, sr=16000).T 
         digit_features.append(features)
-    training_features.append(digit_features) # training_features will be a list of lists of feature sequences, grouped by digit
+    training_features.append(digit_features)
 
 print("Computing test features...")
 for digit_label_str in digits_str:
-    digit_test_audio = [test_audio_data[i] for i, label in enumerate(test_labels) if label == digit_label_str] # Get audio for each digit
+    digit_test_audio = [test_audio_data[i] for i, label in enumerate(test_labels) if label == digit_label_str]
     digit_features = []
     for audio in digit_test_audio:
-        features = compute_mfcc(audio, sr=16000).T # Important: Pass sample rate if needed
+        features = compute_mfcc(audio, sr=16000).T
         digit_features.append(features)
-    test_features.append(digit_features) # test_features will be a list of lists of feature sequences, grouped by digit
+    test_features.append(digit_features)
 
 
-# --- Training HMMs ---
 hmms = {}
 print("Training HMMs...")
 for digit_index, digit_name in enumerate(digits):
@@ -280,14 +263,13 @@ for digit_index, digit_name in enumerate(digits):
     hmms[digit_name] = hmm
 print("HMM training complete.")
 
-# --- Recognition and Accuracy Calculation ---
 correct_predictions = 0
 total_predictions = 0
 
 print("Performing Recognition...")
 for digit_index, digit_name in enumerate(digits):
     print(f"Predicting {digit_name}")
-    for test_sequence in test_features[digit_index][:5]: # Use first 5 recordings for testing as per problem 2 instruction for test utterances.
+    for test_sequence in test_features[digit_index][:5]: 
         log_likelihoods = {}
         for model_digit_name in digits:
             model = hmms[model_digit_name]
