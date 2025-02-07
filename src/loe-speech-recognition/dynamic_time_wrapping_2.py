@@ -12,40 +12,9 @@ logging.basicConfig(filename='runtime.log', level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 def euclidean_distance(point1, point2):
-    """
-    Calculates the Euclidean distance between two points.
-
-    Args:
-        point1: A numerical value representing the first point.
-        point2: A numerical value representing the second point.
-
-    Returns:
-        The Euclidean distance between point1 and point2.
-    """
     return np.sqrt(np.sum((point1 - point2)**2))
 
 def dynamic_time_wrapping(seq1, seq2, distance_metric=euclidean_distance):
-    """
-    Calculates the Dynamic Time Warping (DTW) distance between two sequences
-    and optionally returns the optimal warping path (traceback).
-
-    Args:
-        seq1: The first sequence (list or numpy array of numerical values).
-        seq2: The second sequence (list or numpy array of numerical values).
-        distance_metric: A function that calculates the distance between two points.
-                         Defaults to euclidean_distance.
-        return_path: A boolean flag. If True, the function returns the optimal
-                     warping path in addition to the DTW distance.
-                     Defaults to False.
-
-    Returns:
-        If return_path is False:
-            - The DTW distance between seq1 and seq2.
-        If return_path is True:
-            - A tuple containing:
-                - The DTW distance between seq1 and seq2.
-                - The optimal warping path as a list of index pairs (tuples).
-    """
     n = len(seq1)
     m = len(seq2)
 
@@ -171,7 +140,6 @@ class DynamicTimeWarping:
                     match_cost = self._cost_matrix[i - 1, j - 1] # Dia
 
                     min_cost = min(insertion_cost, shrink_cost, match_cost)
-                    # self._cost_matrix[i, j] = cost + min_cost
                     current_accumulated_cost = cost + min_cost
                     
                     if self.pruning:
@@ -205,16 +173,6 @@ class DynamicTimeWarping:
 
     @staticmethod
     def euclidean_distance(point1, point2):
-        """
-        Calculates the Euclidean distance between two points.
-
-        Args:
-            point1: A numerical value representing the first point.
-            point2: A numerical value representing the second point.
-
-        Returns:
-            The Euclidean distance between point1 and point2.
-        """
         return np.sqrt(np.sum((point1 - point2)**2))
 
 
