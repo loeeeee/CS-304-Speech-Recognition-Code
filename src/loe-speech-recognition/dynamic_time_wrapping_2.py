@@ -99,16 +99,17 @@ def dynamic_time_wrapping(seq1, seq2, distance_metric=euclidean_distance):
     return cost_matrix[n, m], cost_matrix, formatted_path # Reverse path to be from start to end
 
 @dataclass
-class DynamicTimeWrapping:
+class DynamicTimeWarping:
     sequences: List[np.ndarray] # A list of words mfccs
     sample: np.ndarray
     trace_back: bool = field(default=False)
     pruning: bool = field(default=True)
+    pruning_factor: float = field(default=4)
 
     _sequences: np.ndarray = field(init=False)
     _sample: np.ndarray = field(init=False)
     _cost_matrix: np.ndarray = field(init=False)
-    _path_matrix: List = field(init=False)
+    _path_matrix: np.ndarray = field(init=False)
     _number_of_words_in_sequences: int = field(init=False)
     _word_length_in_sequences: List[int] = field(init=False)
     _word_starting_positions: List[int] = field(init=False)
@@ -153,22 +154,35 @@ class DynamicTimeWrapping:
         # Fill in the cost matrix and path matrix
         # cost_matrix_left = np.copy(self._cost_matrix)
         # cost_matrix_right = np.copy(self._cost_matrix)
-
+        min_cost_in_column = np.full(self._length + 1, np.inf)
+        # min_cost_in_column[0] = 0.0
         for j in range(1, self._length + 1):
+            min_cost_in_column[j] = np.inf
             for starting_position, word_length in zip(self._word_starting_positions, self._word_length_in_sequences):
                 # logger.info(f"Cost at starting position: {self._cost_matrix[starting_position, 0]} at {starting_position}")
                 # logger.info(f"Cost at non-starting position: {self._cost_matrix[starting_position+1, 0]} at {starting_position+1}")
                 for i in range(starting_position, starting_position + word_length + 1):
                     cost = self.euclidean_distance(self._sequences[i - 1], self._sample[j - 1])
                     insertion_cost = self._cost_matrix[i, j - 1] # Level
-                    if i - 2 < 0:
+                    if i - 2 < starting_position:
                         shrink_cost = np.inf
                     else:
                         shrink_cost = self._cost_matrix[i - 2, j - 1] # Super Diagonal
                     match_cost = self._cost_matrix[i - 1, j - 1] # Dia
 
                     min_cost = min(insertion_cost, shrink_cost, match_cost)
-                    self._cost_matrix[i, j] = cost + min_cost
+                    # self._cost_matrix[i, j] = cost + min_cost
+                    current_accumulated_cost = cost + min_cost
+                    
+                    if self.pruning:
+                        pruning_threshold = min_cost_in_column[j-1] * (1 + self.pruning_factor)
+                        if current_accumulated_cost > pruning_threshold:
+                            logger.info(f"Current cost: {current_accumulated_cost}")
+                            logger.info(f"Punning happened, threshold: {pruning_threshold}")
+                            self._cost_matrix[i, j] = np.inf # Prune this path
+                            continue # Skip updating path matrix and min_cost_in_column for this cell
+                    
+                    self._cost_matrix[i, j] = current_accumulated_cost
 
                     if self.trace_back:
                         if min_cost == insertion_cost:
@@ -177,6 +191,9 @@ class DynamicTimeWrapping:
                             self._path_matrix[i, j] = 2  # Super diagonal
                         else: # min_cost == match_cost (or could be equal to multiple, diagonal preferred if tied - standard DTW)
                             self._path_matrix[i, j] = 3  # Diagonal (Match)
+
+                    if self._cost_matrix[i, j] != np.inf: # Only update min_cost_in_column if not pruned
+                        min_cost_in_column[j] = min(min_cost_in_column[j], self._cost_matrix[i, j])
 
         distance_results = []
         for position, length in zip(self._word_starting_positions, self._word_length_in_sequences):
@@ -214,73 +231,3 @@ def dynamic_time_wrapping_fast(mfccs_sequences: List[np.ndarray], sample, distan
             shortest_path = path
 
     return shortest_distance, index_of_shortest, shortest_path
-    
-def find_shortest_dtw(sequence_stack, sample_sequence, distance_metric=euclidean_distance, return_path=False):
-    """
-    Compares a stack of sequences to a sample sequence using DTW and finds the
-    shortest DTW distance among them. Optionally returns the traceback for the shortest path.
-
-    Args:
-        sequence_stack: A list of sequences.
-        sample_sequence: The sample sequence.
-        distance_metric: Distance metric function.
-        return_path: If True, returns the traceback for the shortest path as well.
-
-    Returns:
-        If return_path is False:
-            - A tuple: (shortest_distance, index_of_shortest)
-        If return_path is True:
-            - A tuple: (shortest_distance, index_of_shortest, shortest_path)
-    """
-    shortest_distance = float('inf')
-    index_of_shortest = None
-    shortest_path = None
-
-    if not sequence_stack:
-        return shortest_distance, index_of_shortest, shortest_path if return_path else index_of_shortest
-
-    for index, seq in enumerate(sequence_stack):
-        if return_path:
-            distance, path = dynamic_time_wrapping(seq, sample_sequence, distance_metric, return_path=True)
-        else:
-            distance = dynamic_time_wrapping(seq, sample_sequence, distance_metric, return_path=False)
-
-        if distance < shortest_distance:
-            shortest_distance = distance
-            index_of_shortest = index
-            if return_path:
-                shortest_path = path
-
-    if return_path:
-        return shortest_distance, index_of_shortest, shortest_path
-    else:
-        return shortest_distance, index_of_shortest
-
-
-# --- Example Usage with Traceback ---
-if __name__ == '__main__':
-    sequence1 = [1, 2, 3, 4, 5]
-    sequence2 = [1, 2, 2, 4, 5, 6]
-    sample_sequence = [1, 2, 2, 3, 5]
-    sequence_stack = [sequence1, sequence2]
-
-    # Example with traceback from dtw_distance directly
-    distance, path = dynamic_time_wrapping(sequence1, sample_sequence, return_path=True)
-    print(f"DTW Distance between sequence1 and sample_sequence: {distance}")
-    print(f"Optimal Warping Path (sequence1 vs sample_sequence): {path}")
-    # Path is a list of (index_seq1, index_sample_sequence) pairs
-
-    # Example with shortest distance and traceback from find_shortest_dtw
-    shortest_dist, shortest_index, shortest_path_stack = find_shortest_dtw(
-        sequence_stack, sample_sequence, return_path=True
-    )
-
-    print("\nSequence Stack:")
-    for i, seq in enumerate(sequence_stack):
-        print(f"  Sequence {i+1}: {seq}")
-    print(f"Sample Sequence: {sample_sequence}")
-
-    print(f"\nShortest DTW Distance (from stack): {shortest_dist}")
-    print(f"Index of Sequence with Shortest Distance (in stack, 0-indexed): {shortest_index}")
-    print(f"Sequence with Shortest Distance: {sequence_stack[shortest_index]}")
-    print(f"Optimal Warping Path (shortest sequence vs sample): {shortest_path_stack}")
