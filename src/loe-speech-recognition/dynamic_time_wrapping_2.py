@@ -103,6 +103,7 @@ class DynamicTimeWrapping:
     sequences: List[np.ndarray] # A list of words mfccs
     sample: np.ndarray
     trace_back: bool = field(default=False)
+    pruning: bool = field(default=True)
 
     _sequences: np.ndarray = field(init=False)
     _sample: np.ndarray = field(init=False)
@@ -176,7 +177,7 @@ class DynamicTimeWrapping:
                             self._path_matrix[i, j] = 2  # Super diagonal
                         else: # min_cost == match_cost (or could be equal to multiple, diagonal preferred if tied - standard DTW)
                             self._path_matrix[i, j] = 3  # Diagonal (Match)
-        
+
         distance_results = []
         for position, length in zip(self._word_starting_positions, self._word_length_in_sequences):
             distance_results.append(self._cost_matrix[position + length - 1, self._length])
