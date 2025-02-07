@@ -1,6 +1,6 @@
 import queue
 import sys
-from typing import ClassVar, List, Literal, Self, Union, no_type_check
+from typing import ClassVar, List, Literal, no_type_check
 from dataclasses import dataclass, field
 import itertools
 import os
@@ -228,7 +228,7 @@ class Segmentation:
 
     # ---------------
     @classmethod
-    def from_basic(cls, sample_rate: int = 44100, channels: List[int] = [1], save_path: str = "./segment_results") -> Self:
+    def from_basic(cls, sample_rate: int = 44100, channels: List[int] = [1], save_path: str = "./segment_results") -> "Segmentation":
         audio_cache: queue.Queue = queue.Queue()
         mapping = [c - 1 for c in channels]  # Channel numbers start with 1
 
@@ -245,7 +245,7 @@ class Segmentation:
             callback=audio_callback,
             dtype=np.int16,
             ) # Specify the 16-bit data type
-        result: Self = cls(stream, audio_cache, save_path)
+        result = cls(stream, audio_cache, save_path)
 
         logger.info(f"Create Segmentation object from basic settings")
         return result
