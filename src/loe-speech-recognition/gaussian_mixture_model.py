@@ -35,7 +35,12 @@ class HMM_GMM:
         self.transition_probs = np.zeros((self.num_states, self.num_states))
         self.mixture_weights = np.ones((self.num_states, self.num_mixtures)) / self.num_mixtures # Uniform mixture weights initially
         self.means = np.zeros((self.num_states, self.num_mixtures, self.feature_dim))
-        self.covariances = np.array([[[np.eye(self.feature_dim) for _ in range(self.num_mixtures)] for _ in range(self.num_states)]]) # Initialize covariances to identity
+        self.covariances = np.zeros((self.num_states, self.num_mixtures, self.feature_dim, self.feature_dim)) # Initialize covariances to zeros first
+
+        for state in range(self.num_states):
+            for mix_idx in range(self.num_mixtures):
+                self.covariances[state, mix_idx] = np.eye(self.feature_dim) # Initialize each covariance to identity matrix
+
 
         # Initialize means by randomly picking data points from segments
         for state in range(self.num_states):
@@ -80,7 +85,7 @@ class HMM_GMM:
             print(f"Segmental K-means Iteration: {iteration + 1}")
             new_mixture_weights = np.zeros_like(self.mixture_weights)
             new_means = np.zeros_like(self.means)
-            new_covariances = np.zeros_like(self.covariances)
+            new_covariances = np.zeros_like(self.covariances) # Initialize with zeros to accumulate covariance correctly
             new_transition_counts = np.zeros_like(self.transition_probs)
             state_counts = np.zeros(self.num_states)
             mixture_counts = np.zeros((self.num_states, self.num_mixtures)) # Count data points for each mixture
@@ -184,13 +189,18 @@ class HMM_GMM:
             for j in range(N):
                 max_log_prob = -float('inf')
                 best_prev_state = 0
+                best_mixture_index = 0 # Keep track of best mixture index
                 for i in range(N):
-                    log_prob = log_delta[t-1, i] + np.log(self.transition_probs[i, j])
-                    if log_prob > max_log_prob:
-                        max_log_prob = log_prob
-                        best_prev_state = i
-                log_delta[t, j] = max_log_prob + self.log_emission_prob(observation_sequence[t], j)
+                    for mix_idx in range(self.num_mixtures): # Iterate through mixtures to find best one
+                        log_prob = log_delta[t-1, i] + np.log(self.transition_probs[i, j]) + np.log(self.mixture_weights[j, mix_idx]) + multivariate_normal.logpdf(observation_sequence[t], self.means[j, mix_idx], self.covariances[j, mix_idx]) # Include mixture weight in prob
+                        if log_prob > max_log_prob:
+                            max_log_prob = log_prob
+                            best_prev_state = i
+                            best_mixture_index = mix_idx # Store the best mixture index
+
+                log_delta[t, j] = max_log_prob # Assign the max log prob (already includes emission prob)
                 psi[t, j] = best_prev_state
+                mixture_assignments[t,j] = best_mixture_index # Store mixture index for best path
 
 
         # Termination
@@ -200,28 +210,13 @@ class HMM_GMM:
         # Backtracking - and also determine mixture assignments along the best path
         viterbi_path = [0] * T
         viterbi_path[T-1] = last_state
-        current_state = last_state
-
         mixture_path_assignments = [0] * T # For storing mixture assignments in the best path
-
-        # Determine mixture assignment for the last frame (frame T-1) for the last state
-        emission_probs_last_frame = []
-        for mix_idx in range(self.num_mixtures):
-             emission_probs_last_frame.append(np.log(self.mixture_weights[last_state, mix_idx]) + multivariate_normal.logpdf(observation_sequence[T-1], self.means[last_state, mix_idx], self.covariances[last_state, mix_idx]))
-        best_mixture_last_frame = np.argmax(emission_probs_last_frame)
-        mixture_path_assignments[T-1] = best_mixture_last_frame
+        mixture_path_assignments[T-1] = mixture_assignments[T-1, last_state] # Get mixture assignment for last state and frame
 
 
         for t in range(T-2, -1, -1):
             viterbi_path[t] = psi[t+1, viterbi_path[t+1]]
-            current_state = viterbi_path[t]
-
-            # Determine mixture assignment for frame t and current_state
-            emission_probs_current_frame = []
-            for mix_idx in range(self.num_mixtures):
-                 emission_probs_current_frame.append(np.log(self.mixture_weights[current_state, mix_idx]) + multivariate_normal.logpdf(observation_sequence[t], self.means[current_state, mix_idx], self.covariances[current_state, mix_idx]))
-            best_mixture_current_frame = np.argmax(emission_probs_current_frame)
-            mixture_path_assignments[t] = best_mixture_current_frame
+            mixture_path_assignments[t] = mixture_assignments[t, viterbi_path[t]] # Get mixture assignment from the stored mixture_assignments matrix
 
 
         return viterbi_path, mixture_path_assignments
