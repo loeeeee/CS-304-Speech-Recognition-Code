@@ -145,8 +145,8 @@ class DynamicTimeWarping:
                     if self.pruning:
                         pruning_threshold = min_cost_in_column[j-1] * (1 + self.pruning_factor)
                         if current_accumulated_cost > pruning_threshold:
-                            logger.info(f"Current cost: {current_accumulated_cost}")
-                            logger.info(f"Punning happened, threshold: {pruning_threshold}")
+                            # logger.info(f"Current cost: {current_accumulated_cost}")
+                            # logger.info(f"Punning happened, threshold: {pruning_threshold}")
                             self._cost_matrix[i, j] = np.inf # Prune this path
                             continue # Skip updating path matrix and min_cost_in_column for this cell
                     
