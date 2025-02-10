@@ -273,9 +273,10 @@ for digit_index, digit_name in enumerate(digits):
         log_likelihoods = {}
         for model_digit_name in digits:
             model = hmms[model_digit_name]
-            log_likelihoods[model_digit_name] = model.log_likelihood(test_sequence)
+            log_likelihoods[model_digit_name] = model.log_likelihood(test_sequence)test_features
 
         predicted_digit_name = max(log_likelihoods, key=log_likelihoods.get) # Digit with highest likelihood
+        print(predicted_digit_name)
         if predicted_digit_name == digit_name:
             correct_predictions += 1
         total_predictions += 1
