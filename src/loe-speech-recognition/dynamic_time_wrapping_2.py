@@ -2,6 +2,7 @@ import numpy as np
 
 from typing import List
 import logging
+import math
 from dataclasses import dataclass, field
 
 from mfcc import compute_mfcc
@@ -20,8 +21,8 @@ def dynamic_time_wrapping(seq1, seq2, distance_metric=euclidean_distance):
 
     # Initialize the cost matrix and path matrix
     cost_matrix = np.zeros((n + 1, m + 1))
-    cost_matrix[0, 1:] = np.inf
-    cost_matrix[1:, 0] = np.inf
+    cost_matrix[0, 1:] = math.inf
+    cost_matrix[1:, 0] = math.inf
     path_matrix = np.zeros((n + 1, m + 1), dtype=int)  # 0: start, 1: up, 2: super diagonal, 3: diagonal
 
     # Fill in the cost matrix and path matrix
@@ -30,7 +31,7 @@ def dynamic_time_wrapping(seq1, seq2, distance_metric=euclidean_distance):
             cost = distance_metric(seq1[i - 1], seq2[j - 1])
             insertion_cost = cost_matrix[i, j - 1] # Level
             if i - 2 < 0:
-                shrink_cost = np.inf
+                shrink_cost = math.inf
             else:
                 shrink_cost = cost_matrix[i - 2, j - 1] # Super Diagonal
             match_cost = cost_matrix[i - 1, j - 1] # Dia
@@ -102,13 +103,13 @@ class DynamicTimeWarping:
         
         ## Init cost matrix
         self._cost_matrix = np.zeros((self._height+1, self._length+1))
-        self._cost_matrix[1:, 0] = np.inf
+        self._cost_matrix[1:, 0] = math.inf
         word_starting_position: int = 0
-        self._cost_matrix[word_starting_position, 1:] = np.inf
+        self._cost_matrix[word_starting_position, 1:] = math.inf
         self._word_starting_positions = [0]
         for word_length in self._word_length_in_sequences[:-1]:
             word_starting_position += word_length
-            self._cost_matrix[word_starting_position, 1:] = np.inf
+            self._cost_matrix[word_starting_position, 1:] = math.inf
             self._cost_matrix[word_starting_position, 0] = 0
             self._word_starting_positions.append(word_starting_position)
 
@@ -123,10 +124,10 @@ class DynamicTimeWarping:
         # Fill in the cost matrix and path matrix
         # cost_matrix_left = np.copy(self._cost_matrix)
         # cost_matrix_right = np.copy(self._cost_matrix)
-        min_cost_in_column = np.full(self._length + 1, np.inf)
+        min_cost_in_column = np.full(self._length + 1, math.inf)
         # min_cost_in_column[0] = 0.0
         for j in range(1, self._length + 1):
-            min_cost_in_column[j] = np.inf
+            min_cost_in_column[j] = math.inf
             for starting_position, word_length in zip(self._word_starting_positions, self._word_length_in_sequences):
                 # logger.info(f"Cost at starting position: {self._cost_matrix[starting_position, 0]} at {starting_position}")
                 # logger.info(f"Cost at non-starting position: {self._cost_matrix[starting_position+1, 0]} at {starting_position+1}")
@@ -134,7 +135,7 @@ class DynamicTimeWarping:
                     cost = self.euclidean_distance(self._sequences[i - 1], self._sample[j - 1])
                     insertion_cost = self._cost_matrix[i, j - 1] # Level
                     if i - 2 < starting_position:
-                        shrink_cost = np.inf
+                        shrink_cost = math.inf
                     else:
                         shrink_cost = self._cost_matrix[i - 2, j - 1] # Super Diagonal
                     match_cost = self._cost_matrix[i - 1, j - 1] # Dia
@@ -147,7 +148,7 @@ class DynamicTimeWarping:
                         if current_accumulated_cost > pruning_threshold:
                             # logger.info(f"Current cost: {current_accumulated_cost}")
                             # logger.info(f"Punning happened, threshold: {pruning_threshold}")
-                            self._cost_matrix[i, j] = np.inf # Prune this path
+                            self._cost_matrix[i, j] = math.inf # Prune this path
                             continue # Skip updating path matrix and min_cost_in_column for this cell
                     
                     self._cost_matrix[i, j] = current_accumulated_cost
@@ -160,7 +161,7 @@ class DynamicTimeWarping:
                         else: # min_cost == match_cost (or could be equal to multiple, diagonal preferred if tied - standard DTW)
                             self._path_matrix[i, j] = 3  # Diagonal (Match)
 
-                    if self._cost_matrix[i, j] != np.inf: # Only update min_cost_in_column if not pruned
+                    if self._cost_matrix[i, j] != math.inf: # Only update min_cost_in_column if not pruned
                         min_cost_in_column[j] = min(min_cost_in_column[j], self._cost_matrix[i, j])
 
         distance_results = []
