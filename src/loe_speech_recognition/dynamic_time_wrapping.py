@@ -5,73 +5,16 @@ import logging
 import math
 from dataclasses import dataclass, field
 
-from mfcc import compute_mfcc
-
+from .mfcc import MFCC
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename='runtime.log', level=logging.INFO, 
-                    format='%(asctime)s - %(levelname)s - %(message)s')
 
-def euclidean_distance(point1, point2):
-    return np.sqrt(np.sum((point1 - point2)**2))
-
-def dynamic_time_wrapping(seq1, seq2, distance_metric=euclidean_distance):
-    n = len(seq1)
-    m = len(seq2)
-
-    # Initialize the cost matrix and path matrix
-    cost_matrix = np.zeros((n + 1, m + 1))
-    cost_matrix[0, 1:] = math.inf
-    cost_matrix[1:, 0] = math.inf
-    path_matrix = np.zeros((n + 1, m + 1), dtype=int)  # 0: start, 1: up, 2: super diagonal, 3: diagonal
-
-    # Fill in the cost matrix and path matrix
-    for i in range(1, n + 1):
-        for j in range(1, m + 1):
-            cost = distance_metric(seq1[i - 1], seq2[j - 1])
-            insertion_cost = cost_matrix[i, j - 1] # Level
-            if i - 2 < 0:
-                shrink_cost = math.inf
-            else:
-                shrink_cost = cost_matrix[i - 2, j - 1] # Super Diagonal
-            match_cost = cost_matrix[i - 1, j - 1] # Dia
-
-            min_cost = min(insertion_cost, shrink_cost, match_cost)
-            cost_matrix[i, j] = cost + min_cost
-
-            if min_cost == insertion_cost:
-                path_matrix[i, j] = 1  # Level (Insertion)
-            elif min_cost == shrink_cost:
-                path_matrix[i, j] = 2  # Super diagonal
-            else: # min_cost == match_cost (or could be equal to multiple, diagonal preferred if tied - standard DTW)
-                path_matrix[i, j] = 3  # Diagonal (Match)
-
-    # Traceback to find the optimal path
-    path = []
-    i = n
-    j = m
-    while i > 0 or j > 0:
-        path.append((i - 1, j - 1)) # Adjust indices to be 0-based for sequences
-        direction = path_matrix[i, j]
-        if direction == 1:          # Level (Insertion)
-            j = j - 1
-        elif direction == 2:        # Super diagonal
-            i = i - 2
-            j = j - 1
-        elif direction == 3:        # Diagonal (Match)
-            i = i - 1
-            j = j - 1
-        else:                       # direction == 0 (Start) - should not happen normally, but for safety
-            break
-
-    formatted_path = np.array([[i[0] for i in reversed(path)], [i[1] for i in reversed(path)]])
-
-    return cost_matrix[n, m], cost_matrix, formatted_path # Reverse path to be from start to end
 
 @dataclass
 class DynamicTimeWarping:
     sequences: List[np.ndarray] # A list of words mfccs
     sample: np.ndarray
+    sample_rate: int|float = field(default=16000)
     trace_back: bool = field(default=False)
     pruning: bool = field(default=True)
     pruning_factor: float = field(default=4)
@@ -89,12 +32,12 @@ class DynamicTimeWarping:
     def __post_init__(self):
         logger.info("Start Post Init Process")
         logger.info(f"Example sequences shape: {self.sequences[0].shape}")
-        sequences_mfccs = [compute_mfcc(word, sr=16000).T for word in self.sequences]
+        sequences_mfccs = [MFCC(word, sample_rate=self.sample_rate).feature_vector.T for word in self.sequences]
         logger.info(f"Example word length in sequences: {sequences_mfccs[0].shape[0]}")
         self._word_length_in_sequences = [word.shape[0] for word in sequences_mfccs]
         self._sequences = np.concatenate(sequences_mfccs)
         logger.info(f"Example _sequences shape: {self._sequences.shape}")
-        self._sample = compute_mfcc(self.sample, sr=16000).T
+        self._sample = MFCC(self.sample, sample_rate=self.sample_rate).feature_vector.T
         self._number_of_words_in_sequences = len(self.sequences)
 
 
@@ -175,18 +118,3 @@ class DynamicTimeWarping:
     @staticmethod
     def euclidean_distance(point1, point2):
         return np.sqrt(np.sum((point1 - point2)**2))
-
-
-def dynamic_time_wrapping_fast(mfccs_sequences: List[np.ndarray], sample, distance_metric=euclidean_distance):
-    shortest_distance = float('inf')
-    index_of_shortest = None
-    shortest_path = None
-
-    for index, seq in enumerate(mfccs_sequences):
-        distance, _, path = dynamic_time_wrapping(seq.T, sample.T, distance_metric)
-        if distance < shortest_distance:
-            shortest_distance = distance
-            index_of_shortest = index
-            shortest_path = path
-
-    return shortest_distance, index_of_shortest, shortest_path

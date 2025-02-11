@@ -3,7 +3,7 @@ import os
 import librosa
 from scipy.stats import multivariate_normal
 
-from mfcc import compute_mfcc
+from .mfcc import compute_mfcc
 
 NUM_STATES = 5 
 FEATURE_DIM = 39

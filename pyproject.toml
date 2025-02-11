@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loe_speech_recognition"
+authors = [
+  { name="loeeeee", email="95266635+loeeeee@users.noreply.github.com" },
+]
+description = "A super simple python app that recognize speech"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  "numpy",
+  "librosa",
+  "sounddevice"
+]
+keywords = ["speech recognition", "numpy", "DTW"]
+version = "0.0.1"
+# dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/loeeeee/CS-304-Speech-Recognition-Code"
+Issues = "https://github.com/loeeeee/CS-304-Speech-Recognition-Code/issues"
+
+# [tool.setuptools.dynamic]
+# version = {attr = "loe_speech_recognition.__version__"}

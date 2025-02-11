@@ -12,8 +12,7 @@ import sounddevice as sd
 import numpy as np
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename='runtime.log', level=logging.DEBUG, 
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 @dataclass
 class NoiseFloor:
