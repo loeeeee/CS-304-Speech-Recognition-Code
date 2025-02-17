@@ -141,38 +141,6 @@ class HiddenMarkovModel:
         ## Update transition probability
         self._transition_prob = self._estimate_transition_prob(sorted_signals, self.num_of_states)
 
-
-        # 2b. Clustering (k-means):
-        # all_segments = np.concatenate([s for s in segments], axis=0) # Combine all segments
-        # kmeans = sk.cluster.KMeans(n_clusters=self.num_of_states, random_state=0).fit(all_segments)
-        # cluster_assignments = kmeans.labels_  # Cluster assignments for each segment
-
-        # 2c. Parameter Update:
-        # Update means:
-        # for state in range(self.num_of_states):
-        #    state_segments = all_segments[cluster_assignments == state]
-        #    if len(state_segments) > 0: # avoid empty segment
-        #        self._means[state] = np.mean(state_segments, axis=0)
-        #    else:
-        #        print("Warning: Empty segment for state", state)
-        #        self._means[state] = np.random.uniform(-1, 1, size=(self.dim_of_feature)) # re-initialize
-        # # Update covariances:
-        # for state in range(self.num_of_states):
-        #     state_segments = all_segments[cluster_assignments == state]
-        #     if len(state_segments) > 0: # avoid empty segment
-        #         self._covariances[state] = np.cov(state_segments, rowvar=False) + np.eye(self.dim_of_feature) * 0.001 # add small value to prevent singular matrix
-        #         if self._covariances[state].ndim == 0: # in case of 1D array
-        #             self._covariances[state] = np.array([[self._covariances[state]]])
-        #         if self._covariances[state].shape != (self.dim_of_feature, self.dim_of_feature): # in case of different shape
-        #             self._covariances[state] = np.eye(self.dim_of_feature) * 0.01
-        #     else:
-        #         print("Warning: Empty segment for state", state)
-        #         self._covariances[state] = np.tile(np.eye(self.dim_of_feature), (1, 1)) * 0.01 # re-initialize
-
-        # Update transition probabilities (from Viterbi paths):
-        # self.transition_probs = self._estimate_transitions(sorted_signals, self.num_of_states, self._means) # See function below
-
-
     @staticmethod
     def _viterbi(observation_sequence: np.ndarray, num_of_states: int, means: List[float]|np.ndarray, transition_probs: np.ndarray, covariances: np.ndarray) -> List[int]:
         T: int = observation_sequence.shape[0]
@@ -221,23 +189,3 @@ class HiddenMarkovModel:
 
         transition_probs = transition_counts / np.sum(transition_counts, axis=1, keepdims=True)
         return transition_probs
-
-
-    # @staticmethod
-    # def _estimate_transitions(segments: List[Tuple[np.ndarray, List[int]]], num_of_states: int, means: List[float]|np.ndarray):
-    #     # Estimate transition probabilities based on the segmented data
-    #     transition_counts = np.zeros((num_of_states, num_of_states))
-    #     for sequence_segments in segments:
-    #         for i in range(len(sequence_segments) - 1):
-    #             current_state = -1 # find the cluster of sequence_segments[i]
-    #             next_state = -1 # find the cluster of sequence_segments[i+1]
-    #             for j in range(num_of_states):
-    #                 if np.all(sequence_segments[i] == means[j]):
-    #                     current_state = j
-    #                 if np.all(sequence_segments[i+1] == means[j]):
-    #                     next_state = j
-    #             if current_state != -1 and next_state != -1:
-    #                 transition_counts[current_state, next_state] += 1
-
-    #     transition_probs = transition_counts / np.sum(transition_counts, axis=1, keepdims=True)
-    #     return transition_probs
