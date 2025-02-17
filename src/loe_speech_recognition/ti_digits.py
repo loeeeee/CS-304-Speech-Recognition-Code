@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 import os
 from typing import Dict, Generator, List, Self, Tuple, Any
-from itertools import chain
 import logging
 
 import numpy as np
@@ -16,7 +15,8 @@ class DataLoader:
     data: Dict[str, List[np.ndarray]]
 
     def __post_init__(self) -> None:
-        logger.info(f"Create TIDigits Data Loader with {len(self)} data")
+        logger.info(f"Create TIDigits Data Loader with {len(self)} labels")
+        logger.info(f"Labels: {self.data.keys()}")
 
     def __iter__(self) -> Generator[Tuple[np.ndarray, str], Any, Any]:
         for k, v in self.data.items():
@@ -34,6 +34,20 @@ class DataLoader:
 
     def __len__(self) -> int:
         return len(self.data)
+
+    def __getitem__(self, key: str) -> List[np.ndarray]:
+        """
+        Return all the data with label, key
+
+        Args:
+            key (str): label
+
+        Returns:
+            List[np.ndarray]: A list of data
+        """
+        logger.info(f"Selecting all data with label {key}")
+        logger.info(f"Returning {len(self.data[key])} data points")
+        return self.data[key]
 
     @classmethod
     def from_folder_path(cls, folder_path: str, isSingleDigits: bool) -> Self:
