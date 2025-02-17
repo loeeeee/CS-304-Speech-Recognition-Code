@@ -15,7 +15,7 @@ logger.info("Finish loading dataset")
 train_dataset = ti_digits.train_dataset
 
 logger.info("Start computing MFCCs")
-train_dataset_mfccs = [MFCC(i, sample_rate=16000).feature_vector.T for i in train_dataset["1"]]
+train_dataset_mfccs = [MFCC(i, sample_rate=16000).feature_vector.T for i in train_dataset["1"][:20]]
 logger.info("Finish computing MFCCs")
 
 logging.getLogger().setLevel(logging.DEBUG)

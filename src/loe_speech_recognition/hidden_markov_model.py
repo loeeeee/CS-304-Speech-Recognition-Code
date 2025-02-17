@@ -13,9 +13,10 @@ class SortedSignal:
     num_of_state: int
     signal: np.ndarray
     path: List[int]
+    # dim_of_feature: int = field(default=39)
 
     @property
-    def order_by_state(self) -> List[np.ndarray]:
+    def order_by_state(self) -> List[np.ndarray|None]:
         segments = {}
         start_index = 0
         for state_write_to in range(self.num_of_state):
@@ -27,14 +28,16 @@ class SortedSignal:
                 else:
                     # Find the end of the sequence
                     break
+            logger.debug(f"Find start index: {start_index}, end index: {end_index}")
 
             if start_index < end_index:
                 segments[state_write_to] = self.signal[start_index: end_index]
             else:
-                segments[state_write_to] = np.array([])
-                logger.info(f"Find empty state")
+                segments[state_write_to] = None
+                logger.debug(f"Find empty state")
+            start_index = end_index
             
-        sorted_segments: List[np.ndarray] = [segments[key] for key in sorted(segments.keys())]
+        sorted_segments: List[np.ndarray|None] = [segments[key] for key in sorted(segments.keys())]
 
         return sorted_segments
     
@@ -110,7 +113,9 @@ class HiddenMarkovModel:
         hmm._means = np.array(means)
         logger.debug("Finish compute means")
         
-        hmm.train(train_data=train_data)
+        for i in range(k_means_max_iteration):
+            hmm.train(train_data=train_data)
+            logger.info(f"Training... {i} iter")
 
         return hmm
 
@@ -130,10 +135,17 @@ class HiddenMarkovModel:
         ## Update means
         signal_concat_by_state: List = [[] for _ in range(self.num_of_states)]
         for sorted_signal in sorted_signals:
-            for state, signal in sorted_signal.order_by_state:
-                signal_concat_by_state[state].append(signal)
+            logger.info(f"Next signal")
+            for state, signal in enumerate(sorted_signal.order_by_state):
+                logger.debug(f"state: {state}")
+                if not signal is None:
+                    # Skip when some state has no signal
+                    logger.debug(f"signal shape: {signal.shape}")
+                    signal_concat_by_state[state].append(signal)
         signal_concat_by_state = [np.concatenate(i) for i in signal_concat_by_state]
-        self._means = np.array([np.average(i, axis=0) for i in signal_concat_by_state]) # Calculate mean for all time series, keeping feature dimension
+        _average = [np.average(i, axis=0) for i in signal_concat_by_state]
+        logger.info(f"Average: {_average[0].shape}, {_average[1].shape}, {_average[2].shape}, {_average[3].shape}, {_average[4].shape}")
+        self._means = np.array(_average) # Calculate mean for all time series, keeping feature dimension
         ## Update covariance
         for state, signals in enumerate(signal_concat_by_state):
             logger.info(f"Local Segments has shape: {signals.shape}")
