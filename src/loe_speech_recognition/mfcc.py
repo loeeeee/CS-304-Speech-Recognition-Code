@@ -66,29 +66,3 @@ class MFCC:
         # print(normalized_mfccs.shape)
         return normalized_mfccs
 
-
-def main() -> None:
-    # Example usage:
-    # Load an audio file (replace with your file path)
-    file_path = librosa.ex('trumpet')  # Example: Use librosa's example audio
-    y, sr = librosa.load(file_path, sr=None)  # y: audio time series, sr: sampling rate
-
-    # Compute MFCCs
-    mfccs, delta_mfccs, delta2_mfccs = MFCC(y, sr, n_mfcc=13).feature_vector #compute 20 MFCCs
-
-    print("MFCCs shape:", mfccs.shape)
-    print("Delta MFCCs shape:", delta_mfccs.shape)
-    print("Delta-delta MFCCs shape:", delta2_mfccs.shape)
-
-    # You can now use the mfccs (and their deltas) for further analysis or machine learning tasks.
-
-    # Example: Plot the MFCCs (optional)
-    import matplotlib.pyplot as plt
-    librosa.display.specshow(mfccs, sr=sr, x_axis='time')
-    plt.colorbar(format='%+2.0f')
-    plt.title('MFCCs')
-    plt.tight_layout()
-    plt.show()
-
-if __name__=="__main__":
-    main()
