@@ -1,9 +1,12 @@
 from dataclasses import dataclass, field
 import logging
-from typing import List, Self, Tuple
+from typing import Dict, List, Self, Tuple
 
 import numpy as np
 import scipy as sp
+from tqdm import tqdm
+from tabulate import tabulate
+import uniplot
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +31,13 @@ class Signal:
                 else:
                     # Find the end of the sequence
                     break
-            logger.debug(f"Find start index: {start_index}, end index: {end_index}")
+            # logger.debug(f"Find start index: {start_index}, end index: {end_index}")
 
             if start_index < end_index:
                 segments[state_write_to] = self.signal[start_index: end_index]
             else:
                 segments[state_write_to] = None
-                logger.debug(f"Find empty state")
+                # logger.debug(f"Find empty state")
             start_index = end_index
             
         sorted_segments: List[np.ndarray|None] = [segments[key] for key in sorted(segments.keys())]
@@ -64,13 +67,12 @@ class SortedSignals:
     def order_by_state(self) -> List[List[np.ndarray]]:
         signals_by_state: List[List[np.ndarray]] = [[] for _ in range(self.num_of_states)]
         for signal in self._signals:
-            logger.info(f"Next signal")
             for state, signal in enumerate(signal.order_by_state):
-                logger.debug(f"state: {state}")
                 if not signal is None:
                     # Skip when some state has no signal
-                    logger.debug(f"signal shape: {signal.shape}")
                     signals_by_state[state].append(signal)
+                else:
+                    logger.debug(f"state: {state} is empty")
         return signals_by_state
 
     @property
@@ -84,6 +86,30 @@ class SortedSignals:
         transition_probs = transition_counts / np.sum(transition_counts, axis=1, keepdims=True)
         return transition_probs
 
+    def show_viterbi_path_table(self) -> None:
+        counter: Dict[int, int] = {}
+        for signal in self._signals:
+            for i in signal.path:
+                if i in counter:
+                    counter[i] += 1
+                else:
+                    counter[i] = 1
+        
+        counter_tab: List[Tuple[int, int]] = [(state, count) for state, count in counter.items()]
+        table = tabulate(counter_tab, ["State", "Count"], tablefmt="grid")
+        descriptions: List[str] = table.split("\n")
+        for i in descriptions:
+            logger.debug(i)
+        return
+    
+    def show_viterbi_path_histogram(self) -> None:
+        counter: List[int] = []
+        for signal in self._signals:
+            counter.extend(signal.path)
+        uniplot.histogram(counter, bins=10, bins_min=0, bins_max=self.num_of_states)
+
+
+
 class HMMTrainMeanFail(Exception):
     def __init__(self, *args: object) -> None:
         super().__init__(*args)
@@ -94,6 +120,7 @@ class HMMTrainConverge(Exception):
     def __init__(self, *args: object) -> None:
         super().__init__(*args)
         logger.warning("Successfully train the HMM model")
+
 
 @dataclass
 class HiddenMarkovModelInitializer:
@@ -152,6 +179,9 @@ class HiddenMarkovModel:
     dim_of_feature: int = field(default=39)
     label: str = field(default="")
 
+    # Settings
+    isTqdm: bool = field(default=True)
+
     # Internals
     _transition_prob: np.ndarray = field(init=False)
     _means: np.ndarray = field(init=False)
@@ -204,6 +234,7 @@ class HiddenMarkovModel:
 
     def train(self, train_data, k_means_max_iteration: int = 100) -> None:
         force_init: bool = True
+        bar = tqdm(desc="Main Train", total=k_means_max_iteration, position=1, disable=not self.isTqdm)
         for i in range(k_means_max_iteration):
             if force_init:
                 self._transition_prob, self._means, self._covariances = self._initializer.init_values()
@@ -218,6 +249,8 @@ class HiddenMarkovModel:
             except HMMTrainConverge:
                 logger.info(f"🏁 Finish training at {i} iteration, after {self._initializer.init_counter} init attempt")
                 break
+            
+            bar.update()
 
         return
 
@@ -226,12 +259,16 @@ class HiddenMarkovModel:
         return
 
 
-    def train_routine(self, train_data) -> None:
+    def train_routine(self, train_data: List[np.ndarray]) -> None:
         # Segmentation
         sorted_signals: SortedSignals = SortedSignals(self.num_of_states)
+        bar = tqdm(desc="Viterbi", total=len(train_data), position=0, disable=True)
         for sequence in train_data:
             viterbi_path = self._viterbi(sequence, self.num_of_states, self._means, self._transition_prob, self._covariances)  # See function below
             sorted_signals.append(Signal(self.num_of_states, sequence, viterbi_path))
+            bar.update()
+
+        sorted_signals.show_viterbi_path_histogram()
 
         # Update parameters
         
@@ -243,7 +280,7 @@ class HiddenMarkovModel:
             raise HMMTrainMeanFail
         ### Do the update
         new_means = [np.average(i, axis=0) for i in signal_concat_by_state]
-        logger.info(f"Average: {new_means[0].shape}, {new_means[1].shape}, {new_means[2].shape}, {new_means[3].shape}, {new_means[4].shape}")
+        # logger.info(f"Average: {new_means[0].shape}, {new_means[1].shape}, {new_means[2].shape}, {new_means[3].shape}, {new_means[4].shape}")
         if np.allclose(new_means, self._means):
             logger.debug("Converges")
             raise HMMTrainConverge
@@ -256,7 +293,7 @@ class HiddenMarkovModel:
             self._covariances[state] = np.cov(signals, rowvar=False) + np.eye(self.dim_of_feature) * 0.001
         
         ## Update transition probability
-        self._transition_prob = sorted_signals.transition_probabilities
+        self._transition_prob = sorted_signals.transition_probabilities.T
 
     @staticmethod
     def _viterbi(observation_sequence: np.ndarray, num_of_states: int, means: List[float]|np.ndarray, transition_probs: np.ndarray, covariances: np.ndarray) -> List[int]:
