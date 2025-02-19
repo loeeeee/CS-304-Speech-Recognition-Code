@@ -2,6 +2,9 @@ from dataclasses import dataclass, field
 import logging
 import math
 from typing import Dict, List, Self, Tuple
+import os
+import time
+import functools
 
 import numpy as np
 import scipy as sp
@@ -196,7 +199,7 @@ class HiddenMarkovModel:
     # Mains
     num_of_states: int = field(default=5)
     dim_of_feature: int = field(default=39)
-    label: str = field(default="")
+    label: str = field(default_factory=functools.partial(time.strftime, "%Y%m%d-%H%M%S")) # Default label to timestamp
 
     # Settings
     isTqdm: bool = field(default=True)
@@ -248,7 +251,25 @@ class HiddenMarkovModel:
     @classmethod
     def from_file(cls, folder_path: str) -> Self:
         hmm = cls()
+        
+        logger.info(f"Loading files from {folder_path}")
+        model_label: str = folder_path.split("/")[-1]
+        logger.info(f"Find model label {model_label}")
+        hmm.label = model_label
 
+        # Save transition
+        trans_probs_file_name: str = os.path.join(folder_path, "trans_probs.npy")
+        hmm._transition_prob = np.load(trans_probs_file_name)
+
+        # Save means
+        means_file_name: str = os.path.join(folder_path, "means.npy")
+        hmm._means = np.load(means_file_name)
+
+        # Save covariances
+        covariances_file_name: str = os.path.join(folder_path, "covariances.npy")
+        hmm._covariances = np.load(covariances_file_name)
+
+        logger.info(f"Finish loading all files for {model_label} model")
         return hmm
 
     def __str__(self) -> str:
@@ -280,9 +301,25 @@ class HiddenMarkovModel:
     def predict(self, signal: np.ndarray) -> float:
         ...
 
-    def save(self, folder_path: str) -> None:
-        
-        ...
+    def save(self, folder_path: str = "./cache") -> None:
+        model_folder: str = os.path.join(folder_path, self.label)
+        logger.info(f"Saving files to {model_folder}")
+        os.mkdir(model_folder)
+
+        # Save transition
+        trans_probs_file_name: str = os.path.join(model_folder, "trans_probs.npy")
+        np.save(trans_probs_file_name, self._transition_prob)
+
+        # Save means
+        means_file_name: str = os.path.join(model_folder, "means.npy")
+        np.save(means_file_name, self._means)
+
+        # Save covariances
+        covariances_file_name: str = os.path.join(model_folder, "covariances.npy")
+        np.save(covariances_file_name, self._covariances)
+
+        logger.info(f"Finish saving all files for {self.label} model")
+        return
 
     def train_routine(self, train_data: List[np.ndarray]) -> None:
         # Segmentation
