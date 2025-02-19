@@ -1,4 +1,4 @@
-from loe_speech_recognition import TIDigits, HiddenMarkovModel, MFCC
+from loe_speech_recognition import TIDigits, HiddenMarkovModel, MFCC, TI_DIGITS_LABELS
 
 import logging
 
@@ -6,7 +6,6 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(filename='./runtime.log', 
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger().setLevel(logging.INFO)
-
 
 logger.info("Start loading dataset")
 ti_digits = TIDigits("./ConvertedTIDigits", isSingleDigits=True)
