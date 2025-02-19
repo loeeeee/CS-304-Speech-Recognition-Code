@@ -7,24 +7,25 @@ import time
 import functools
 
 import numpy as np
+from numpy.typing import NDArray
 import scipy as sp
 from tqdm import tqdm
 from tabulate import tabulate
 import uniplot
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 @dataclass
 class Signal:
     # Mains
     num_of_state: int
-    signal: np.ndarray
-    path: List[int]
+    signal: NDArray[np.float32]
+    path: NDArray[np.int8]
     # dim_of_feature: int = field(default=39)
 
     @property
-    def order_by_state(self) -> List[np.ndarray|None]:
+    def order_by_state(self) -> List[NDArray|None]:
         segments = {}
         start_index = 0
         for state_write_to in range(self.num_of_state):
@@ -45,12 +46,12 @@ class Signal:
                 # logger.debug(f"Find empty state")
             start_index = end_index
             
-        sorted_segments: List[np.ndarray|None] = [segments[key] for key in sorted(segments.keys())]
+        sorted_segments: List[NDArray|None] = [segments[key] for key in sorted(segments.keys())]
 
         return sorted_segments
     
     @property
-    def order_by_signal(self) -> List[Tuple[np.ndarray, int]]:
+    def order_by_signal(self) -> List[Tuple[NDArray, int]]:
         return [(signal, state) for signal, state in zip(self.signal, self.path)]
 
 @dataclass
@@ -69,8 +70,8 @@ class SortedSignals:
         self._signals.append(signal)
 
     @property
-    def order_by_state(self) -> List[List[np.ndarray]]:
-        signals_by_state: List[List[np.ndarray]] = [[] for _ in range(self.num_of_states)]
+    def order_by_state(self) -> List[List[NDArray]]:
+        signals_by_state: List[List[NDArray]] = [[] for _ in range(self.num_of_states)]
         for signal in self._signals:
             for state, signal in enumerate(signal.order_by_state):
                 if not signal is None:
@@ -81,13 +82,14 @@ class SortedSignals:
         return signals_by_state
 
     @property
-    def transition_probabilities(self) -> np.ndarray:
-        transition_counts: np.ndarray = np.zeros((self.num_of_states, self.num_of_states))
+    def transition_probabilities(self) -> NDArray:
+        transition_counts: NDArray = np.zeros((self.num_of_states, self.num_of_states))
         for signal in self._signals:
             last_state: int = signal.path[0]
             for current_state in signal.path[1:]:
-                transition_counts[last_state: current_state] += 1
+                transition_counts[last_state, current_state] += 1
                 last_state = current_state
+        logger.debug(f"Transition count is {transition_counts}")
         transition_probs = transition_counts / np.sum(transition_counts, axis=1, keepdims=True)
         return transition_probs
 
@@ -114,7 +116,6 @@ class SortedSignals:
         uniplot.histogram(counter, bins=10, bins_min=0, bins_max=self.num_of_states)
 
     def show_viterbi_path_str(self) -> None:
-        # paths: List[List[Tuple[int, int]]] = []
         for signal in self._signals:
             path: List[Tuple[int, int]] = []
             counter: int = 1
@@ -127,7 +128,6 @@ class SortedSignals:
                     counter = 1
                 else:
                     counter += 1
-            # paths.append(path)
             logger.debug(f"Viterbi path: {path}")
         return
 
@@ -148,7 +148,7 @@ class HMMTrainConverge(Exception):
 class HiddenMarkovModelInitializer:
     # Mains
     num_of_states: int
-    train_data: List[np.ndarray]
+    train_data: List[NDArray]
     dim_of_feature: int = field(default=39)
 
     # Internals
@@ -159,7 +159,7 @@ class HiddenMarkovModelInitializer:
         logger.info(f"Created HMM initializer")
         return
 
-    def init_values(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def init_values(self) -> Tuple[NDArray, NDArray, NDArray]:
         # Transition Probabilities
         transition_probabilities: List[List[float]] = []
         for current_state_index in range(self.num_of_states):
@@ -205,9 +205,9 @@ class HiddenMarkovModel:
     isTqdm: bool = field(default=True)
 
     # Internals
-    _transition_prob: np.ndarray = field(init=False)
-    _means: np.ndarray = field(init=False)
-    _covariances: np.ndarray = field(init=False)
+    _transition_prob: NDArray = field(init=False)
+    _means: NDArray = field(init=False)
+    _covariances: NDArray = field(init=False)
     _initializer: HiddenMarkovModelInitializer = field(init=False)
 
     def __post_init__(self) -> None:
@@ -226,7 +226,7 @@ class HiddenMarkovModel:
         cls, 
         label: str, 
         num_of_states: int, 
-        train_data: List[np.ndarray], # A list of mfcc feature vector of each signal
+        train_data: List[NDArray], # A list of mfcc feature vector of each signal
         dim_of_feature: int = 39,
         k_means_max_iteration: int = 100
         ) -> Self:
@@ -307,10 +307,10 @@ class HiddenMarkovModel:
 
         return
     
-    def predict(self, signal: np.ndarray) -> float:
+    def predict(self, signal: NDArray) -> float:
         assert signal.shape[1] == self.dim_of_feature
 
-        path, score = self._viterbi(signal, self.num_of_states, self._means, self._transition_prob, self._covariances)
+        path, score = self._viterbi_fast(signal, self.num_of_states, self._means, self._transition_prob, self._covariances)
         
         return score
 
@@ -319,7 +319,7 @@ class HiddenMarkovModel:
         logger.info(f"Saving files to {model_folder}")
         if not os.path.isdir(model_folder):
             logger.info(f"Folder {model_folder} do not exists, creating the folder")
-            os.mkdir(model_folder)
+            os.makedirs(model_folder)
 
         # Save transition
         trans_probs_file_name: str = os.path.join(model_folder, "trans_probs.npy")
@@ -336,13 +336,14 @@ class HiddenMarkovModel:
         logger.info(f"Finish saving all files for {self.label} model")
         return
 
-    def train_routine(self, train_data: List[np.ndarray]) -> None:
+    def train_routine(self, train_data: List[NDArray]) -> None:
         # Segmentation
         logger.debug(f"Calculating Viterbi Path")
         sorted_signals: SortedSignals = SortedSignals(self.num_of_states)
         bar = tqdm(desc="Viterbi", total=len(train_data), position=0, disable=True)
         for sequence in train_data:
-            viterbi_path, best_score = self._viterbi(sequence, self.num_of_states, self._means, self._transition_prob, self._covariances)
+            viterbi_path, best_score = self._viterbi_fast(sequence, self.num_of_states, self._means, self._transition_prob, self._covariances)
+            logger.debug(f"Viterbi_path: {viterbi_path.tolist()}")
             sorted_signals.append(Signal(self.num_of_states, sequence, viterbi_path))
             bar.update()
         bar.close()
@@ -353,7 +354,7 @@ class HiddenMarkovModel:
         
         ## Update means
         logger.debug(f"Calculating new means")
-        signals_sorted_by_state: List[List[np.ndarray]] = sorted_signals.order_by_state
+        signals_sorted_by_state: List[List[NDArray]] = sorted_signals.order_by_state
         try:
             signal_concat_by_state = [np.concatenate(i) for i in signals_sorted_by_state]
         except ValueError:
@@ -374,21 +375,22 @@ class HiddenMarkovModel:
             self._covariances[state] = np.cov(signals, rowvar=False) + np.eye(self.dim_of_feature) * 0.001
         
         ## Update transition probability
-        logger.debug(f"Calculating new transition prob")
+        logger.debug(f"Calculating new transition probabilities")
         self._transition_prob = sorted_signals.transition_probabilities
+        logger.debug(f"Trans probabilities is {self._transition_prob}")
 
     @staticmethod
-    def _viterbi(observation_sequence: np.ndarray, num_of_states: int, means: List[float]|np.ndarray, transition_probs: np.ndarray, covariances: np.ndarray) -> Tuple[List[int], float]:
+    def _viterbi(observation_sequence: NDArray, num_of_states: int, means: List[float]|NDArray, transition_probs: NDArray, covariances: NDArray) -> Tuple[List[int], float]:
         sequence_length: int = observation_sequence.shape[0]
-        # log_transition_probs: np.ndarray = np.log(transition_probs)
+        # log_transition_probs: NDArray = np.log(transition_probs)
         likelihoods = np.full((sequence_length, num_of_states), -math.inf) # can shrink the size
-        tracer: np.ndarray = np.full((sequence_length, num_of_states), -math.inf, dtype=np.int16)
+        tracer: NDArray = np.full((sequence_length, num_of_states), -math.inf, dtype=np.int16)
 
         likelihoods[0, 0] = sp.stats.multivariate_normal.logpdf(\
                 observation_sequence[0], means[0], covariances[0], \
                     allow_singular=False)\
                         + np.log(transition_probs[0, 0])
-        logger.debug(f"Initial log likelihood is {likelihoods[0, 0]}")
+        # logger.debug(f"Initial log likelihood is {likelihoods[0, 0]}")
         
         def get_likelihood(time: int, new_state: int, old_state: int) -> float:
             result_p1 = sp.stats.multivariate_normal.logpdf(\
@@ -410,7 +412,7 @@ class HiddenMarkovModel:
                     # logger.debug(f"Transiting from {old_state} to {state} has the likelihood of {total_likelihood}")
                 max_value: float = max(current_max_likelihood)
                 max_index: int = current_max_likelihood.index(max_value)
-                logger.debug(f"The transition to {state} has the max likelihood of {max_value} from state {max_index}, whose likelihood is {likelihoods[t-1, max_index]}")
+                # logger.debug(f"The transition to {state} has the max likelihood of {max_value} from state {max_index}, whose likelihood is {likelihoods[t-1, max_index]}")
             
             # for state in range(num_of_states):
                 # Update likelihoods
@@ -419,7 +421,7 @@ class HiddenMarkovModel:
                 tracer[t, state] = max_index
 
             # logger.debug(f"At time {t}, maximum likelihood becomes {np.max(likelihoods[t])}, at state {np.argmax(likelihoods[t])}")
-            logger.debug(f"At time {t}, likelihoods become {likelihoods[t,:]}")
+            # logger.debug(f"At time {t}, likelihoods become {likelihoods[t,:]}")
 
         score: float = likelihoods[-1, -1]
 
@@ -428,11 +430,63 @@ class HiddenMarkovModel:
         path: List[int] = [num_of_states]
         
         for t in range(sequence_length - 2, 0, -1):
-            logger.debug(f"The previous state at {t} is {prev_state}")
+            # logger.debug(f"The previous state at {t} is {prev_state}")
             path.append(prev_state)
             prev_state = tracer[t, prev_state]
         path = list(reversed(path))
-        logger.debug(f"Finish viterbi, the score is {score}")
+        # logger.debug(f"Finish viterbi, the score is {score}")
+        return path, score
+    
+    @staticmethod
+    def _viterbi_fast(observation_sequence: NDArray[np.float32], num_of_states: int, means: NDArray[np.float32], transition_probs: NDArray[np.float32], covariances: NDArray) -> Tuple[NDArray[np.int8], float]:
+        sequence_length: int = observation_sequence.shape[0]
+        likelihoods: NDArray[np.float32] = np.full((sequence_length, num_of_states), -math.inf, dtype=np.float32) # can shrink the size
+        tracer: NDArray[np.int8] = np.full((sequence_length, num_of_states), -math.inf, dtype=np.int8)
+
+        likelihoods[0, 0] = sp.stats.multivariate_normal.logpdf(\
+                observation_sequence[0], means[0], covariances[0], \
+                    allow_singular=False)\
+                        + np.log(transition_probs[0, 0])
+        logger.debug(f"Initial log likelihood is {likelihoods[0, 0]}")
+        
+        def get_likelihood(time: int, new_state: int, old_state: int) -> float:
+            if transition_probs[old_state, new_state] == 0:
+                return -math.inf
+            result_p1: float = sp.stats.multivariate_normal.logpdf(\
+                observation_sequence[time], means[new_state], covariances[new_state], \
+                    allow_singular=False)
+            result_p2: float = np.log(transition_probs[old_state, new_state])
+            result_p3: float = likelihoods[time - 1, old_state]
+            result: float = result_p1 + result_p2 + result_p3
+            logger.debug(f"At time {time}, trans from {old_state} to {new_state}, likelihood is {result_p1}, {result_p2}")
+            return result
+
+        
+        for t in range(1, sequence_length):
+            for state in range(num_of_states):
+                # Find best likelihood
+                current_max_likelihood: NDArray[np.float32] = np.full((num_of_states, ), -math.inf)
+                for old_state in range(max(state-2, 0), state+1):
+                    current_max_likelihood[old_state] = get_likelihood(t, state, old_state)
+                max_value: np.float32 = np.max(current_max_likelihood)
+                max_index: np.intp = np.argmax(current_max_likelihood)
+            
+            # for state in range(num_of_states):
+                # Update likelihoods
+                likelihoods[t, state] = max_value
+                # Note the best path for each
+                tracer[t, state] = max_index
+
+        score: float = likelihoods[-1, -1]
+
+        # Find the path
+        prev_state: int = tracer[-1, -1]
+        path: NDArray = np.zeros((sequence_length, ), dtype=np.int8)
+        path[-1] = prev_state
+        
+        for t in range(sequence_length - 2, 0, -1):
+            path[t] = prev_state
+            prev_state = tracer[t, prev_state]
         return path, score
 
     @staticmethod
