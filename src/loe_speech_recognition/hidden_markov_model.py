@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 import logging
 import math
-from typing import Dict, List, Self, Tuple
+from typing import Dict, List, Self, Tuple, no_type_check
 import os
 import time
 import functools
@@ -253,9 +253,8 @@ class HiddenMarkovModel:
         hmm = cls()
         
         logger.info(f"Loading files from {folder_path}")
-        model_label: str = folder_path.split("/")[-1]
-        logger.info(f"Find model label {model_label}")
-        hmm.label = model_label
+        hmm.label, hmm.num_of_states, hmm.dim_of_feature = hmm.folder_name_parser(folder_path)
+        logger.info(f"Find model label {hmm.label}")
 
         # Save transition
         trans_probs_file_name: str = os.path.join(folder_path, "trans_probs.npy")
@@ -269,7 +268,16 @@ class HiddenMarkovModel:
         covariances_file_name: str = os.path.join(folder_path, "covariances.npy")
         hmm._covariances = np.load(covariances_file_name)
 
-        logger.info(f"Finish loading all files for {model_label} model")
+        logger.info(f"Finish loading all files for {hmm.label} model")
+        
+        # Evaluate
+        assert hmm.num_of_states == hmm._means.shape[0]
+        assert hmm.dim_of_feature == hmm._means.shape[1]
+        assert hmm.num_of_states == hmm._covariances.shape[0]
+        assert hmm.dim_of_feature == hmm._covariances.shape[1]
+        assert hmm.dim_of_feature == hmm._covariances.shape[2]
+        assert hmm.num_of_states == hmm._transition_prob.shape[0]
+        assert hmm.num_of_states == hmm._transition_prob.shape[1]
         return hmm
 
     def __str__(self) -> str:
@@ -300,12 +308,18 @@ class HiddenMarkovModel:
         return
     
     def predict(self, signal: np.ndarray) -> float:
-        ...
+        assert signal.shape[1] == self.dim_of_feature
+
+        path, score = self._viterbi(signal, self.num_of_states, self._means, self._transition_prob, self._covariances)
+        
+        return score
 
     def save(self, folder_path: str = "./cache") -> None:
-        model_folder: str = os.path.join(folder_path, self.label)
+        model_folder: str = os.path.join(folder_path, f"{self.label}#{self.num_of_states}#{self.dim_of_feature}")
         logger.info(f"Saving files to {model_folder}")
-        os.mkdir(model_folder)
+        if not os.path.isdir(model_folder):
+            logger.info(f"Folder {model_folder} do not exists, creating the folder")
+            os.mkdir(model_folder)
 
         # Save transition
         trans_probs_file_name: str = os.path.join(model_folder, "trans_probs.npy")
@@ -332,7 +346,7 @@ class HiddenMarkovModel:
             sorted_signals.append(Signal(self.num_of_states, sequence, viterbi_path))
             bar.update()
         bar.close()
-        
+
         sorted_signals.show_viterbi_path_str()
 
         # Update parameters
@@ -420,3 +434,13 @@ class HiddenMarkovModel:
         path = list(reversed(path))
         logger.debug(f"Finish viterbi, the score is {score}")
         return path, score
+
+    @staticmethod
+    @no_type_check
+    def folder_name_parser(folder_path: str) -> Tuple[str, int, int]:
+        information: Tuple[str, int, int] = tuple(folder_path.split("/")[-1].split("#"))
+        logger.info(f"Folder name parsed, {information}")
+        
+        label, num_of_states, dim_of_feature = information
+
+        return str(label), int(num_of_states), int(dim_of_feature)
