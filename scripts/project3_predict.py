@@ -4,6 +4,7 @@ import logging
 
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='./runtime.log', 
@@ -20,17 +21,30 @@ mc = ModelCollection.load_from_files(".cache/small_model", 5, 39)
 
 train_data_confusion_matrix = np.zeros((len(TI_DIGITS_LABELS), len(TI_DIGITS_LABELS)))
 test_data_confusion_matrix = np.zeros((len(TI_DIGITS_LABELS), len(TI_DIGITS_LABELS)))
+overall_bar = tqdm(desc="Overall Progress", total=len(TI_DIGITS_LABELS), position=1)
 for index, label in enumerate(TI_DIGITS_LABELS):
     # Seen data
     train_dataset_mfccs = [MFCC(i, sample_rate=16000).feature_vector.T for i in train_dataset[label][:10]]
+    local_bar = tqdm(desc="Local Progress", total=len(train_dataset_mfccs), position=0)
     for signal in train_dataset_mfccs:
         pred_label = mc.predict(signal)
         pred_index = TI_DIGITS_LABELS[pred_label]
         train_data_confusion_matrix[index: pred_index] += 1
+        local_bar.update()
 
     # Unseen data
     test_dataset_mfccs = [MFCC(i, sample_rate=16000).feature_vector.T for i in train_dataset[label][10:20]]
+    local_bar = tqdm(desc="Local Progress", total=len(test_dataset_mfccs), position=0)
     for signal in test_dataset_mfccs:
         pred_label = mc.predict(signal)
-        test_data_confusion_matrix[label: pred_label] += 1
+        pred_index = TI_DIGITS_LABELS[pred_label]
+        test_data_confusion_matrix[index: pred_index] += 1
+        local_bar.update()
+    
+    overall_bar.update()
+
+logger.info(f"Confusion matrix when prediction on known data:")
+logger.info(f"{train_data_confusion_matrix}")
+logger.info(f"Confusion matrix when prediction on unknown data:")
+logger.info(f"{test_data_confusion_matrix}")
 
