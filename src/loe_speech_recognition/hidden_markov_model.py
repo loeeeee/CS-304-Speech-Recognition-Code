@@ -1,14 +1,17 @@
 from dataclasses import dataclass, field
 import logging
-from typing import Dict, List, Self, Tuple
+import math
+from typing import Dict, List, Self, Tuple, Union
 
 import numpy as np
 import scipy as sp
 from tqdm import tqdm
 from tabulate import tabulate
 import uniplot
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class Signal:
@@ -72,7 +75,7 @@ class SortedSignals:
                     # Skip when some state has no signal
                     signals_by_state[state].append(signal)
                 else:
-                    logger.debug(f"state: {state} is empty")
+                    logger.debug(f"state: {state} is empty when organizing signals")
         return signals_by_state
 
     @property
@@ -108,6 +111,23 @@ class SortedSignals:
             counter.extend(signal.path)
         uniplot.histogram(counter, bins=10, bins_min=0, bins_max=self.num_of_states)
 
+    def show_viterbi_path_str(self) -> None:
+        # paths: List[List[Tuple[int, int]]] = []
+        for signal in self._signals:
+            path: List[Tuple[int, int]] = []
+            counter: int = 1
+            last_state: int = int(signal.path[0])
+            for i in signal.path[1:]:
+                current_state: int = i
+                if current_state != last_state:
+                    path.append((last_state, counter))
+                    last_state = int(current_state)
+                    counter = 1
+                else:
+                    counter += 1
+            # paths.append(path)
+            logger.debug(f"Viterbi path: {path}")
+        return
 
 
 class HMMTrainMeanFail(Exception):
@@ -246,6 +266,7 @@ class HiddenMarkovModel:
             except HMMTrainMeanFail:
                 force_init = True
                 logger.warning(f"Reinit parameters next loop, {i+1}")
+                raise # for debug
             except HMMTrainConverge:
                 logger.info(f"🏁 Finish training at {i} iteration, after {self._initializer.init_counter} init attempt")
                 break
@@ -261,18 +282,21 @@ class HiddenMarkovModel:
 
     def train_routine(self, train_data: List[np.ndarray]) -> None:
         # Segmentation
+        logger.debug(f"Calculating Viterbi Path")
         sorted_signals: SortedSignals = SortedSignals(self.num_of_states)
         bar = tqdm(desc="Viterbi", total=len(train_data), position=0, disable=True)
         for sequence in train_data:
-            viterbi_path = self._viterbi(sequence, self.num_of_states, self._means, self._transition_prob, self._covariances)  # See function below
+            # viterbi_path = self._viterbi(sequence, self.num_of_states, self._means, self._transition_prob, self._covariances)  # See function below
+            viterbi_path, best_score = self._viterbi(sequence, self.num_of_states, self._means, self._transition_prob, self._covariances)
             sorted_signals.append(Signal(self.num_of_states, sequence, viterbi_path))
             bar.update()
 
-        sorted_signals.show_viterbi_path_histogram()
+        sorted_signals.show_viterbi_path_str()
 
         # Update parameters
         
         ## Update means
+        logger.debug(f"Calculating new means")
         signals_sorted_by_state: List[List[np.ndarray]] = sorted_signals.order_by_state
         try:
             signal_concat_by_state = [np.concatenate(i) for i in signals_sorted_by_state]
@@ -288,46 +312,69 @@ class HiddenMarkovModel:
         self._means = np.array(new_means) # Calculate mean for all time series, keeping feature dimension
 
         ## Update covariance
+        logger.debug(f"Calculating new covariance")
         for state, signals in enumerate(signal_concat_by_state):
-            logger.info(f"Local Segments has shape: {signals.shape}")
+            logger.info(f"State signal has shape: {signals.shape}")
             self._covariances[state] = np.cov(signals, rowvar=False) + np.eye(self.dim_of_feature) * 0.001
         
         ## Update transition probability
-        self._transition_prob = sorted_signals.transition_probabilities.T
+        logger.debug(f"Calculating new transition prob")
+        self._transition_prob = sorted_signals.transition_probabilities
 
     @staticmethod
-    def _viterbi(observation_sequence: np.ndarray, num_of_states: int, means: List[float]|np.ndarray, transition_probs: np.ndarray, covariances: np.ndarray) -> List[int]:
-        T: int = observation_sequence.shape[0]
-        N: int = num_of_states
+    def _viterbi(observation_sequence: np.ndarray, num_of_states: int, means: List[float]|np.ndarray, transition_probs: np.ndarray, covariances: np.ndarray) -> Tuple[List[int], float]:
+        sequence_length: int = observation_sequence.shape[0]
+        # log_transition_probs: np.ndarray = np.log(transition_probs)
+        likelihoods = np.full((sequence_length, num_of_states), -math.inf) # can shrink the size
+        tracer: np.ndarray = np.full((sequence_length, num_of_states), -math.inf, dtype=np.int16)
 
-        log_delta = np.zeros((T, N)) # log-probabilities of the most likely path ending in state j at time t
-        psi = np.zeros((T, N), dtype=int)   
+        likelihoods[0, 0] = sp.stats.multivariate_normal.logpdf(\
+                observation_sequence[0], means[0], covariances[0], \
+                    allow_singular=False)\
+                        + np.log(transition_probs[0, 0])
+        logger.debug(f"Initial log likelihood is {likelihoods[0, 0]}")
+        
+        def get_likelihood(time: int, new_state: int, old_state: int) -> float:
+            result_p1 = sp.stats.multivariate_normal.logpdf(\
+                observation_sequence[time], means[new_state], covariances[new_state], \
+                    allow_singular=False)
+            result_p2 = np.log(transition_probs[old_state, new_state])
+            result_p3 = likelihoods[time - 1, old_state]
+            result = result_p1 + result_p2 + result_p3
+            # logger.debug(f"At time {time}, trans from {old_state} to {new_state}, likelihood is {result_p1}, {result_p2}")
+            return result
 
-        # Initialization (t=0)
-        for s in range(N):
-            log_delta[0, s] = sp.stats.multivariate_normal.logpdf(observation_sequence[0], means[s], covariances[s], allow_singular=False) # Assuming equal prior probabilities for starting states
+        
+        for t in range(1, sequence_length):
+            for state in range(num_of_states):
+                # Find best likelihood
+                current_max_likelihood = [-math.inf for _ in range(num_of_states)]
+                for old_state in range(max(state-2, 0), state+1):
+                    current_max_likelihood[old_state] = get_likelihood(t, state, old_state)
+                    # logger.debug(f"Transiting from {old_state} to {state} has the likelihood of {total_likelihood}")
+                max_value: float = max(current_max_likelihood)
+                max_index: int = current_max_likelihood.index(max_value)
+                logger.debug(f"The transition to {state} has the max likelihood of {max_value} from state {max_index}, whose likelihood is {likelihoods[t-1, max_index]}")
+            
+            # for state in range(num_of_states):
+                # Update likelihoods
+                likelihoods[t, state] = max_value
+                # Note the best path for each
+                tracer[t, state] = max_index
 
-        # Recursion (t=1 to T-1)
-        for t in range(1, T):
-            for j in range(N):
-                max_log_prob = -float('inf')
-                best_prev_state = 0
-                for i in range(N):
-                    log_prob = log_delta[t-1, i] + np.log(transition_probs[i, j])
-                    if log_prob > max_log_prob:
-                        max_log_prob = log_prob
-                        best_prev_state = i
-                log_delta[t, j] = max_log_prob + sp.stats.multivariate_normal.logpdf(observation_sequence[t], means[j], covariances[j], allow_singular=False)
-                psi[t, j] = best_prev_state
+            # logger.debug(f"At time {t}, maximum likelihood becomes {np.max(likelihoods[t])}, at state {np.argmax(likelihoods[t])}")
+            logger.debug(f"At time {t}, likelihoods become {likelihoods[t,:]}")
 
-        # Termination
-        best_path_prob = np.max(log_delta[T-1, :])
-        last_state = np.argmax(log_delta[T-1, :])
+        score: float = likelihoods[-1, -1]
 
-        # Backtracking
-        viterbi_path: List = [0 for _ in range(T)]
-        viterbi_path[T-1] = last_state
-        for t in range(T-2, -1, -1):
-            viterbi_path[t] = psi[t+1, viterbi_path[t+1]]
-
-        return viterbi_path # [np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(0), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(1), np.int64(2), np.int64(2), np.int64(2), np.int64(2), np.int64(2), np.int64(2), np.int64(3), np.int64(3), np.int64(3), np.int64(3), np.int64(3), np.int64(3), np.int64(3), np.int64(3), np.int64(3), np.int64(3), np.int64(3), np.int64(3), np.int64(3), np.int64(3), np.int64(3), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4), np.int64(4)]
+        # Find the path
+        prev_state: int = tracer[-1, -1]
+        path: List[int] = [num_of_states]
+        
+        for t in range(sequence_length - 2, 0, -1):
+            logger.debug(f"The previous state at {t} is {prev_state}")
+            path.append(prev_state)
+            prev_state = tracer[t, prev_state]
+        path = list(reversed(path))
+        logger.debug(f"Finish viterbi, the score is {score}")
+        return path, score
