@@ -8,6 +8,7 @@ import librosa
 
 logger = logging.getLogger(__name__)
 
+TI_DIGITS_LABELS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "O", "Z"]
 
 @dataclass
 class DataLoader:
