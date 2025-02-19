@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
+import functools
 import logging
 import math
 from typing import Dict, List, Literal, Self, Tuple, no_type_check
 import os
+import concurrent.futures
 
 import numpy as np
 from numpy.typing import NDArray
@@ -218,7 +220,7 @@ class HiddenMarkovModel:
         self._means             = np.zeros((self.num_of_states, self.dim_of_feature))
         self._covariances       = np.zeros((self.num_of_states, self.dim_of_feature, self.dim_of_feature))
 
-        logger.info(f"Finish initialize HMM for {str(self)}")
+        # logger.info(f"Finish initialize HMM for {str(self)}")
         return
 
     @classmethod
@@ -342,11 +344,14 @@ class HiddenMarkovModel:
         logger.debug(f"Calculating Viterbi Path")
         sorted_signals: SortedSignals = SortedSignals(self.num_of_states)
         bar = tqdm(desc="Viterbi", total=len(train_data), position=0, disable=True)
-        for sequence in train_data:
-            viterbi_path, best_score = self._viterbi_fast(sequence, self.num_of_states, self._means, self._transition_prob, self._covariances)
-            logger.debug(f"Viterbi_path: {viterbi_path.tolist()}")
-            sorted_signals.append(Signal(self.num_of_states, sequence, viterbi_path))
-            bar.update()
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            for sequence, (viterbi_path, best_score) in zip(train_data, \
+                executor.map(functools.partial(self._viterbi_fast, \
+                    num_of_states=self.num_of_states, means=self._means, transition_probs=self._transition_prob, covariances=self._covariances), \
+                        train_data)):
+                sorted_signals.append(Signal(self.num_of_states, sequence, viterbi_path))
+                bar.update()
+
         bar.close()
 
         sorted_signals.show_viterbi_path_str()

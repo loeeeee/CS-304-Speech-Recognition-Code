@@ -16,7 +16,7 @@ train_dataset = ti_digits.train_dataset
 
 for label in TI_DIGITS_LABELS:
     logger.info("Start computing MFCCs")
-    train_dataset_mfccs = [MFCC(i, sample_rate=16000).feature_vector.T for i in train_dataset[label][:10]]
+    train_dataset_mfccs = [MFCC(i, sample_rate=16000).feature_vector.T for i in train_dataset[label]]
     logger.info("Finish computing MFCCs")
 
     # logging.getLogger().setLevel(logging.DEBUG)
@@ -25,5 +25,5 @@ for label in TI_DIGITS_LABELS:
     logger.info("Finish initialize HMM model from data")
 
     logger.info("Start saving HMM model")
-    hmm.save(".cache/small_model/")
+    hmm.save(".cache/big_model/")
     logger.info("Finish saving HMM model")
