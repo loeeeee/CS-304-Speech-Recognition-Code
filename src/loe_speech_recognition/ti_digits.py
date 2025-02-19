@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 import os
-from typing import Dict, Generator, List, Self, Tuple, Any
+from typing import Dict, Generator, List, Literal, Self, Tuple, Any, TypeAlias
 import logging
 
 import numpy as np
@@ -8,7 +8,21 @@ import librosa
 
 logger = logging.getLogger(__name__)
 
-TI_DIGITS_LABELS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "O", "Z"]
+TI_DIGITS_LABEL_TYPE: TypeAlias = Literal["1", "2", "3", "4", "5", "6", "7", "8", "9", "O", "Z"]
+TI_DIGITS_LABELS: Dict[TI_DIGITS_LABEL_TYPE, int] = {
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "O": 0,
+    "Z": 10
+}
+
 
 @dataclass
 class DataLoader:

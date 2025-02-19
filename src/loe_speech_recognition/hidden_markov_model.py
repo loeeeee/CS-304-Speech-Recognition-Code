@@ -1,10 +1,8 @@
 from dataclasses import dataclass, field
 import logging
 import math
-from typing import Dict, List, Self, Tuple, no_type_check
+from typing import Dict, List, Literal, Self, Tuple, no_type_check
 import os
-import time
-import functools
 
 import numpy as np
 from numpy.typing import NDArray
@@ -12,6 +10,8 @@ import scipy as sp
 from tqdm import tqdm
 from tabulate import tabulate
 import uniplot
+
+from .ti_digits import TI_DIGITS_LABEL_TYPE
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -199,7 +199,7 @@ class HiddenMarkovModel:
     # Mains
     num_of_states: int = field(default=5)
     dim_of_feature: int = field(default=39)
-    label: str = field(default_factory=functools.partial(time.strftime, "%Y%m%d-%H%M%S")) # Default label to timestamp
+    label: TI_DIGITS_LABEL_TYPE = field(init=False) # Default label to timestamp
 
     # Settings
     isTqdm: bool = field(default=True)
@@ -224,14 +224,15 @@ class HiddenMarkovModel:
     @classmethod
     def from_data(
         cls, 
-        label: str, 
+        label: TI_DIGITS_LABEL_TYPE, 
         num_of_states: int, 
         train_data: List[NDArray], # A list of mfcc feature vector of each signal
         dim_of_feature: int = 39,
         k_means_max_iteration: int = 100
         ) -> Self:
 
-        hmm = cls(num_of_states, dim_of_feature=dim_of_feature, label=label)
+        hmm = cls(num_of_states, dim_of_feature=dim_of_feature)
+        hmm.label = label
 
         # Transition probabilities
         ## It should not go back
@@ -285,7 +286,7 @@ class HiddenMarkovModel:
 
     def train(self, train_data, k_means_max_iteration: int = 100) -> None:
         force_init: bool = True
-        bar = tqdm(desc="Main Train", total=k_means_max_iteration, position=1, disable=not self.isTqdm)
+        bar = tqdm(desc=f"Train {self.label} model", total=k_means_max_iteration, position=1, disable=not self.isTqdm)
         for i in range(k_means_max_iteration):
             if force_init:
                 self._transition_prob, self._means, self._covariances = self._initializer.init_values()
@@ -491,7 +492,7 @@ class HiddenMarkovModel:
 
     @staticmethod
     @no_type_check
-    def folder_name_parser(folder_path: str) -> Tuple[str, int, int]:
+    def folder_name_parser(folder_path: str) -> Tuple[TI_DIGITS_LABEL_TYPE, int, int]:
         information: Tuple[str, int, int] = tuple(folder_path.split("/")[-1].split("#"))
         logger.info(f"Folder name parsed, {information}")
         
