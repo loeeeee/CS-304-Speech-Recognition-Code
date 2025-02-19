@@ -1,9 +1,9 @@
 from loe_speech_recognition import TIDigits, HiddenMarkovModel, MFCC, TI_DIGITS_LABELS, ModelCollection
 
 import logging
+import concurrent.futures
 
 import numpy as np
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
@@ -26,20 +26,20 @@ for index, label in enumerate(TI_DIGITS_LABELS):
     # Seen data
     train_dataset_mfccs = [MFCC(i, sample_rate=16000).feature_vector.T for i in train_dataset[label][:10]]
     local_bar = tqdm(desc="Local Progress", total=len(train_dataset_mfccs), position=0)
-    for signal in train_dataset_mfccs:
-        pred_label = mc.predict(signal)
-        pred_index = TI_DIGITS_LABELS[pred_label]
-        train_data_confusion_matrix[index: pred_index] += 1
-        local_bar.update()
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        for pred_label in executor.map(mc.predict, train_dataset_mfccs):
+            pred_index = TI_DIGITS_LABELS[pred_label]
+            train_data_confusion_matrix[index, pred_index] += 1
+            local_bar.update()
 
     # Unseen data
     test_dataset_mfccs = [MFCC(i, sample_rate=16000).feature_vector.T for i in train_dataset[label][10:20]]
     local_bar = tqdm(desc="Local Progress", total=len(test_dataset_mfccs), position=0)
-    for signal in test_dataset_mfccs:
-        pred_label = mc.predict(signal)
-        pred_index = TI_DIGITS_LABELS[pred_label]
-        test_data_confusion_matrix[index: pred_index] += 1
-        local_bar.update()
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        for pred_label in executor.map(mc.predict, test_dataset_mfccs):
+            pred_index = TI_DIGITS_LABELS[pred_label]
+            test_data_confusion_matrix[index, pred_index] += 1
+            local_bar.update()
     
     overall_bar.update()
 
