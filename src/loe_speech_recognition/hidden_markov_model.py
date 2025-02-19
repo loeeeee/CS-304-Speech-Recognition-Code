@@ -1,14 +1,13 @@
 from dataclasses import dataclass, field
 import logging
 import math
-from typing import Dict, List, Self, Tuple, Union
+from typing import Dict, List, Self, Tuple
 
 import numpy as np
 import scipy as sp
 from tqdm import tqdm
 from tabulate import tabulate
 import uniplot
-import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +194,7 @@ class HiddenMarkovModelInitializer:
 @dataclass
 class HiddenMarkovModel:
     # Mains
-    num_of_states: int
+    num_of_states: int = field(default=5)
     dim_of_feature: int = field(default=39)
     label: str = field(default="")
 
@@ -226,7 +225,7 @@ class HiddenMarkovModel:
         num_of_states: int, 
         train_data: List[np.ndarray], # A list of mfcc feature vector of each signal
         dim_of_feature: int = 39,
-        k_means_max_iteration: int = 10
+        k_means_max_iteration: int = 100
         ) -> Self:
 
         hmm = cls(num_of_states, dim_of_feature=dim_of_feature, label=label)
@@ -243,9 +242,12 @@ class HiddenMarkovModel:
             dim_of_feature=dim_of_feature
         )
         
-        for i in range(k_means_max_iteration):
-            hmm.train(train_data=train_data)
-            logger.info(f"Training... {i} iter")
+        hmm.train(train_data=train_data, k_means_max_iteration=k_means_max_iteration)
+        return hmm
+
+    @classmethod
+    def from_file(cls, folder_path: str) -> Self:
+        hmm = cls()
 
         return hmm
 
@@ -274,11 +276,13 @@ class HiddenMarkovModel:
             bar.update()
 
         return
+    
+    def predict(self, signal: np.ndarray) -> float:
+        ...
 
-    def train_routine_new(self, train_data) -> None:
-        # Segmentation
-        return
-
+    def save(self, folder_path: str) -> None:
+        
+        ...
 
     def train_routine(self, train_data: List[np.ndarray]) -> None:
         # Segmentation
@@ -286,7 +290,6 @@ class HiddenMarkovModel:
         sorted_signals: SortedSignals = SortedSignals(self.num_of_states)
         bar = tqdm(desc="Viterbi", total=len(train_data), position=0, disable=True)
         for sequence in train_data:
-            # viterbi_path = self._viterbi(sequence, self.num_of_states, self._means, self._transition_prob, self._covariances)  # See function below
             viterbi_path, best_score = self._viterbi(sequence, self.num_of_states, self._means, self._transition_prob, self._covariances)
             sorted_signals.append(Signal(self.num_of_states, sequence, viterbi_path))
             bar.update()
@@ -304,7 +307,7 @@ class HiddenMarkovModel:
             raise HMMTrainMeanFail
         ### Do the update
         new_means = [np.average(i, axis=0) for i in signal_concat_by_state]
-        # logger.info(f"Average: {new_means[0].shape}, {new_means[1].shape}, {new_means[2].shape}, {new_means[3].shape}, {new_means[4].shape}")
+        logger.debug(f"Means is updated to {new_means}")
         if np.allclose(new_means, self._means):
             logger.debug("Converges")
             raise HMMTrainConverge
@@ -314,7 +317,7 @@ class HiddenMarkovModel:
         ## Update covariance
         logger.debug(f"Calculating new covariance")
         for state, signals in enumerate(signal_concat_by_state):
-            logger.info(f"State signal has shape: {signals.shape}")
+            logger.debug(f"State signal has shape: {signals.shape}")
             self._covariances[state] = np.cov(signals, rowvar=False) + np.eye(self.dim_of_feature) * 0.001
         
         ## Update transition probability
