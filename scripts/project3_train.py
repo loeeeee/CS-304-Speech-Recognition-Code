@@ -20,8 +20,9 @@ logger.info("Finish computing MFCCs")
 
 # logging.getLogger().setLevel(logging.DEBUG)
 logger.info("Start initialize HMM model from data")
-hmm = HiddenMarkovModel.from_data("0", 5, train_dataset_mfccs)
+hmm = HiddenMarkovModel.from_data("0", 5, train_dataset_mfccs, k_means_max_iteration=15)
 logger.info("Finish initialize HMM model from data")
 
-logger.info("Start testing HMM model")
-logger.info("Finish testing HMM model")
+logger.info("Start saving HMM model")
+hmm.save(".cache/")
+logger.info("Finish saving HMM model")
