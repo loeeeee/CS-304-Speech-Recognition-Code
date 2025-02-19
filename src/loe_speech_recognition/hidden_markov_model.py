@@ -295,6 +295,7 @@ class HiddenMarkovModel:
                 break
             
             bar.update()
+        bar.close()
 
         return
     
@@ -330,7 +331,8 @@ class HiddenMarkovModel:
             viterbi_path, best_score = self._viterbi(sequence, self.num_of_states, self._means, self._transition_prob, self._covariances)
             sorted_signals.append(Signal(self.num_of_states, sequence, viterbi_path))
             bar.update()
-
+        bar.close()
+        
         sorted_signals.show_viterbi_path_str()
 
         # Update parameters
