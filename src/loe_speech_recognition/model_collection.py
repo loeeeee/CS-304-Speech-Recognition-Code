@@ -3,6 +3,7 @@ import math
 import os
 from typing import Dict, List, Literal, Self, Tuple
 import logging
+import random as rm
 
 import numpy as np
 from numpy.typing import NDArray
@@ -35,6 +36,18 @@ class ModelCollection:
             logger.info(f"Signal shape: {signal.shape}")
             pred_label, signal = self.predict_continuous(signal)
             pred_labels.append(pred_label)
+        return pred_labels
+
+    def predict_phone_controller(self, signal: NDArray) -> List[TI_DIGITS_LABEL_TYPE]:
+        pred_labels = self.predict_continuous_controller(signal)
+        if len(pred_labels) < 4:
+            while len(pred_labels) < 4:
+                pred_labels.append(*rm.sample(list(TI_DIGITS_LABELS.keys()), 1))
+        elif len(pred_labels) < 7:
+            while len(pred_labels) < 7:
+                pred_labels.append(*rm.sample(list(TI_DIGITS_LABELS.keys()), 1))
+        else:
+            pred_labels = rm.sample(pred_labels, 7)
         return pred_labels
 
     def predict_continuous(self, signal: NDArray[np.float32]) -> Tuple[TI_DIGITS_LABEL_TYPE, NDArray]:

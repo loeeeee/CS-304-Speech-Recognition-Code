@@ -61,8 +61,8 @@ class DataLoader:
         Returns:
             List[np.ndarray]: A list of data
         """
-        logger.info(f"Selecting all data with label {key}")
-        logger.info(f"Returning {len(self.data[key])} data points")
+        # logger.info(f"Selecting all data with label {key}")
+        # logger.info(f"Returning {len(self.data[key])} data points")
         return self.data[key]
 
     def get_combined(self, labels: str, key: int = 0) -> NDArray:
