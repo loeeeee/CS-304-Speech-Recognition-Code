@@ -5,6 +5,7 @@ import logging
 
 import numpy as np
 import librosa
+from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,15 @@ class DataLoader:
         logger.info(f"Selecting all data with label {key}")
         logger.info(f"Returning {len(self.data[key])} data points")
         return self.data[key]
+
+    def get_combined(self, labels: str, key: int = 0) -> NDArray:
+        labels_list: List[str] = [label for label in labels]
+        signal_list: List[NDArray] = []
+        for label in labels_list:
+            signal_list.append(self[label][key])
+        signal: NDArray = np.concat(signal_list)
+        logger.debug(f"Signal has shape {signal.shape}")
+        return signal
 
     @classmethod
     def from_folder_path(cls, folder_path: str, isSingleDigits: bool) -> Self:

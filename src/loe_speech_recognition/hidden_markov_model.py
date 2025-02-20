@@ -317,6 +317,15 @@ class HiddenMarkovModel:
         
         return score
 
+
+    def predict_with_hack(self, signal: NDArray) -> Tuple[float, NDArray]:
+        assert signal.shape[1] == self.dim_of_feature
+
+        path, score = self._viterbi_fast_with_hack(signal, self.num_of_states, self._means, self._transition_prob, self._covariances)
+        logger.debug(f"Path with hack is {path}")
+        
+        return score, path
+
     def save(self, folder_path: str = "./cache") -> None:
         model_folder: str = os.path.join(folder_path, f"{self.label}#{self.num_of_states}#{self.dim_of_feature}")
         logger.info(f"Saving files to {model_folder}")
@@ -495,6 +504,65 @@ class HiddenMarkovModel:
             prev_state = tracer[t, prev_state]
         return path, score
 
+    @staticmethod
+    def _viterbi_fast_with_hack(observation_sequence: NDArray[np.float32], num_of_states: int, means: NDArray[np.float32], transition_probs: NDArray[np.float32], covariances: NDArray) -> Tuple[NDArray[np.int8], float]:
+        sequence_length: int = observation_sequence.shape[0]
+        likelihoods: NDArray[np.float32] = np.full((sequence_length, num_of_states), -math.inf, dtype=np.float32) # can shrink the size
+        tracer: NDArray[np.int8] = np.full((sequence_length, num_of_states), -math.inf, dtype=np.int8)
+
+        likelihoods[0, 0] = sp.stats.multivariate_normal.logpdf(\
+                observation_sequence[0], means[0], covariances[0], \
+                    allow_singular=False)\
+                        + np.log(transition_probs[0, 0])
+        logger.debug(f"Initial log likelihood is {likelihoods[0, 0]}")
+        
+        def get_likelihood(time: int, new_state: int, old_state: int) -> float:
+            if transition_probs[old_state, new_state] == 0:
+                return -math.inf
+            result_p1: float = sp.stats.multivariate_normal.logpdf(\
+                observation_sequence[time], means[new_state], covariances[new_state], \
+                    allow_singular=False)
+            result_p2: float = np.log(transition_probs[old_state, new_state])
+            result_p3: float = likelihoods[time - 1, old_state]
+            result: float = result_p1 + result_p2 + result_p3
+            logger.debug(f"At time {time}, trans from {old_state} to {new_state}, likelihood is {result_p1}, {result_p2}")
+            return result
+
+        
+        for t in range(1, sequence_length):
+            for state in range(num_of_states):
+                # Find best likelihood
+                current_max_likelihood: NDArray[np.float32] = np.full((num_of_states, ), -math.inf)
+                for old_state in range(max(state-2, 0), state+1):
+                    current_max_likelihood[old_state] = get_likelihood(t, state, old_state)
+                max_value: np.float32 = np.max(current_max_likelihood)
+                max_index: np.intp = np.argmax(current_max_likelihood)
+            
+            # for state in range(num_of_states):
+                # Update likelihoods
+                likelihoods[t, state] = max_value
+                # Note the best path for each
+                tracer[t, state] = max_index
+
+        score: float = likelihoods[-1, -1]
+
+        # Find the path
+        prev_state_time_index = np.argmax(likelihoods[:, -1])
+        while prev_state_time_index < 80:
+            likelihoods[prev_state_time_index, -1] = -math.inf
+            prev_state_time_index = np.argmax(likelihoods[:, -1])
+            logger.debug("Ignore sequence because it is too short")
+
+        logger.debug(f"Find a good starting point, {prev_state_time_index}")
+        prev_state = tracer[prev_state_time_index, -1]
+        path: NDArray = np.zeros((prev_state_time_index, ), dtype=np.int8)
+        path[-1] = prev_state
+        
+        for t in range(prev_state_time_index - 2, 0, -1):
+            path[t] = prev_state
+            prev_state = tracer[t, prev_state]
+        return path, score
+    
     @staticmethod
     @no_type_check
     def folder_name_parser(folder_path: str) -> Tuple[TI_DIGITS_LABEL_TYPE, int, int]:
