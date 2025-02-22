@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
 import logging
+from typing import List
 
 import librosa
 import numpy as np
+from numpy._typing import NDArray
 
 logger = logging.getLogger(__name__)
 
@@ -65,4 +67,19 @@ class MFCC:
 
         # print(normalized_mfccs.shape)
         return normalized_mfccs
+
+    @classmethod
+    def batch(cls, signals: List[NDArray], sample_rate: int) -> List[NDArray[np.float32]]:
+        """
+        Generate **Transposed** mfcc feature vectors given input signals, 
+        row is time, column is features (-1, 39) for example
+
+        Args:
+            signals (List[NDArray]): A list of raw signals
+
+        Returns:
+            List[NDArray[np.float32]]: A list of transposed time series MFCC feature vectors
+        """
+        # Really fast, multiprocessing not needed
+        return [cls(signal, sample_rate=sample_rate).feature_vector.T for signal in signals]
 
