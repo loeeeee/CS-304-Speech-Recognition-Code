@@ -15,7 +15,7 @@ logging.basicConfig(filename='./runtime.log',
 logging.getLogger().setLevel(logging.INFO)
 
 logger.info("Start loading dataset")
-ti_digits = TIDigits("./ConvertedTIDigits", isSingleDigits=True)
+ti_digits = TIDigits("./ConvertedTIDigits", isLazyLoading=True)
 logger.info("Finish loading dataset")
 
 train_dataset = ti_digits.train_dataset

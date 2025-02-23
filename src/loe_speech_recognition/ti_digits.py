@@ -64,11 +64,7 @@ class DataLoader:
         """
         # logger.info(f"Selecting all data with label {key}")
         # logger.info(f"Returning {len(self.data[key])} data points")
-        candidates = []
-        for candidate in self.data[key]:
-            logger.info(f"Candidate is {candidate}")
-            candidates.append(self.lazy_loading(candidate))
-        # candidates: List[NDArray] = [self.lazy_loading(candidate) for candidate in self.data[key]]
+        candidates: List[NDArray] = [self.lazy_loading(candidate) for candidate in self.data[key]]
         return candidates
 
     def get_combined(self, labels: str, key: int = 0) -> NDArray:
@@ -120,22 +116,21 @@ class DataLoader:
         logger.debug(f"{file_name} is parsed to {result}")
         return result
 
-    @staticmethod
-    def lazy_loading(file_path: str|NDArray) -> NDArray:
-        return _lazy_loading(file_path)
+    @functools.singledispatchmethod
+    @classmethod
+    def lazy_loading(cls, file_path: str|NDArray) -> NDArray:
+        raise NotImplementedError(f"Cannot deal with {type(file_path)}")
 
-@functools.singledispatch
-def _lazy_loading(file_path) -> NDArray:
-    raise NotImplementedError(f"Cannot deal with {type(file_path)}")
+    @lazy_loading.register
+    @classmethod
+    def _(cls, file_path: str) -> NDArray:
+        signal = np.astype(sp.io.wavfile.read(file_path)[1], np.float32)
+        return signal
 
-@_lazy_loading.register
-def _(file_path: str) -> NDArray:
-    signal = np.astype(sp.io.wavfile.read(file_path)[1], np.float32)
-    return signal
-
-@_lazy_loading.register
-def _(file_path: np.ndarray) -> NDArray:
-    return file_path
+    @lazy_loading.register
+    @classmethod
+    def _(cls, file_path: np.ndarray) -> NDArray:
+        return file_path
 
 
 @dataclass
@@ -147,7 +142,7 @@ class TIDigits:
     include_adult: bool = field(default=True)
     include_children: bool = field(default=True)
     include_percentage: float = field(default=1.0)
-    isSingleDigits: bool = field(default=False)
+    isLazyLoading: bool = field(default=True)
 
     # Internals
     _train_dataset: DataLoader = field(init=False)
@@ -163,12 +158,12 @@ class TIDigits:
             adult_folder_path = os.path.join(self.folder_path, "Adults", "TIDIGITS")
             adult_train = DataLoader.from_folder_path(
                 os.path.join(adult_folder_path, "TRAIN"),
-                self.isSingleDigits
+                self.isLazyLoading
             )
             self._train_dataset += adult_train
             adult_test = DataLoader.from_folder_path(
                 os.path.join(adult_folder_path, "TEST"),
-                self.isSingleDigits
+                self.isLazyLoading
             )
             self._test_dataset += adult_test
         
@@ -177,12 +172,12 @@ class TIDigits:
             children_folder_path = os.path.join(self.folder_path, "Children", "TIDIGITS")
             children_train = DataLoader.from_folder_path(
                 os.path.join(children_folder_path, "TRAIN"),
-                self.isSingleDigits
+                self.isLazyLoading
             )
             self._train_dataset += children_train
             children_test = DataLoader.from_folder_path(
                 os.path.join(children_folder_path, "TEST"),
-                self.isSingleDigits
+                self.isLazyLoading
             )
             self._test_dataset += children_test
 

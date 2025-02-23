@@ -12,6 +12,7 @@ import scipy as sp
 from tqdm import tqdm
 from tabulate import tabulate
 import uniplot
+import soundfile as sf
 
 from .ti_digits import TI_DIGITS_LABEL_TYPE
 
@@ -130,7 +131,8 @@ class SortedSignals:
                     counter = 1
                 else:
                     counter += 1
-            logger.debug(f"Viterbi path: {path}")
+            path.append((last_state, counter))
+            logger.info(f"Viterbi path: {path}")
         return
 
 
@@ -211,6 +213,7 @@ class HiddenMarkovModel:
     _means: NDArray = field(init=False)
     _covariances: NDArray = field(init=False)
     _initializer: HiddenMarkovModelInitializer = field(init=False)
+    _sample_signal: NDArray = field(init=False)
 
     def __post_init__(self) -> None:
         # Init all parameters
@@ -219,6 +222,8 @@ class HiddenMarkovModel:
         self._transition_prob   = np.zeros((self.num_of_states, self.num_of_states))
         self._means             = np.zeros((self.num_of_states, self.dim_of_feature))
         self._covariances       = np.zeros((self.num_of_states, self.dim_of_feature, self.dim_of_feature))
+
+        self._sample_signal = np.zeros((1,))
 
         # logger.info(f"Finish initialize HMM for {str(self)}")
         return
@@ -232,9 +237,15 @@ class HiddenMarkovModel:
         dim_of_feature: int = 39,
         k_means_max_iteration: int = 100
         ) -> Self:
+        # Validation
+        assert len(train_data) >= 1
+        assert num_of_states > 0
+        assert dim_of_feature > 0
+        assert k_means_max_iteration > 0
 
         hmm = cls(num_of_states, dim_of_feature=dim_of_feature)
         hmm.label = label
+        hmm._sample_signal = train_data[0]
 
         # Transition probabilities
         ## It should not go back
@@ -303,6 +314,7 @@ class HiddenMarkovModel:
                 raise # for debug
             except HMMTrainConverge:
                 logger.info(f"🏁 Finish training at {i} iteration, after {self._initializer.init_counter} init attempt")
+                logger.info(f"trans: {self._transition_prob}")
                 break
             
             bar.update()
@@ -364,6 +376,7 @@ class HiddenMarkovModel:
         bar.close()
 
         sorted_signals.show_viterbi_path_str()
+        # sorted_signals.show_viterbi_path_histogram()
 
         # Update parameters
         

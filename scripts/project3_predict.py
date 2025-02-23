@@ -14,7 +14,7 @@ logging.basicConfig(filename='./runtime.log',
 logging.getLogger().setLevel(logging.INFO)
 
 logger.info("Start loading dataset")
-ti_digits = TIDigits("./ConvertedTIDigits", isSingleDigits=True)
+ti_digits = TIDigits("./ConvertedTIDigits", isLazyLoading=True)
 logger.info("Finish loading dataset")
 
 train_dataset = ti_digits.train_dataset
@@ -26,8 +26,9 @@ train_data_confusion_matrix = np.zeros((len(TI_DIGITS_LABELS), len(TI_DIGITS_LAB
 test_data_confusion_matrix = np.zeros((len(TI_DIGITS_LABELS), len(TI_DIGITS_LABELS)))
 overall_bar = tqdm(desc="Overall Progress", total=len(TI_DIGITS_LABELS), position=1)
 for index, label in enumerate(TI_DIGITS_LABELS):
+    logger.info(f"Index {index} is label {label}")
     # Seen data
-    train_dataset_mfccs = [MFCC(i, sample_rate=16000).feature_vector.T for i in train_dataset[label]]
+    train_dataset_mfccs = MFCC.batch(train_dataset[label], sample_rate=16000)
     local_bar = tqdm(desc="Local Progress", total=len(train_dataset_mfccs), position=0)
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for pred_label in executor.map(mc.predict, train_dataset_mfccs):
@@ -36,7 +37,7 @@ for index, label in enumerate(TI_DIGITS_LABELS):
             local_bar.update()
 
     # Unseen data
-    test_dataset_mfccs = [MFCC(i, sample_rate=16000).feature_vector.T for i in test_dataset[label]]
+    test_dataset_mfccs = MFCC.batch(test_dataset[label], sample_rate=16000)
     local_bar = tqdm(desc="Local Progress", total=len(test_dataset_mfccs), position=0)
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for pred_label in executor.map(mc.predict, test_dataset_mfccs):
