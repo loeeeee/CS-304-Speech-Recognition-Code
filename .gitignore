@@ -185,3 +185,4 @@ static/
 TISIGITS_LDC93S10.zip
 ConvertedTIDigits/
 .cache
+src/loe_speech_recognition/deprecated/*

@@ -85,15 +85,15 @@ class SortedSignals:
         return signals_by_state
 
     @property
-    def transition_probabilities(self) -> NDArray:
-        transition_counts: NDArray = np.zeros((self.num_of_states, self.num_of_states))
+    def transition_probabilities(self) -> NDArray[np.float32]:
+        transition_counts: NDArray = np.zeros((self.num_of_states, self.num_of_states), dtype=np.int32)
         for signal in self._signals:
             last_state: int = signal.path[0]
             for current_state in signal.path[1:]:
                 transition_counts[last_state, current_state] += 1
                 last_state = current_state
         logger.debug(f"Transition count is {transition_counts}")
-        transition_probs = transition_counts / np.sum(transition_counts, axis=1, keepdims=True)
+        transition_probs = (transition_counts / np.sum(transition_counts, axis=1, keepdims=True)).astype(np.float32)
         return transition_probs
 
     def show_viterbi_path_table(self) -> None:
@@ -163,14 +163,14 @@ class HiddenMarkovModelInitializer:
         logger.info(f"Created HMM initializer")
         return
 
-    def init_values(self) -> Tuple[NDArray, NDArray, NDArray]:
+    def init_values(self) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]]:
         # Transition Probabilities
         transition_probabilities: List[List[float]] = []
         for current_state_index in range(self.num_of_states):
             inner_list: List[float] = [0. for _ in range(current_state_index)]
             inner_list.extend([1/(self.num_of_states - current_state_index) for _ in range(self.num_of_states - current_state_index)])
             transition_probabilities.append(inner_list)
-        transition_probs = np.array(transition_probabilities)
+        transition_probs = np.array(transition_probabilities, dtype=np.float32)
         logger.debug("Finish compute transition probabilities")
 
         # Means
@@ -187,11 +187,11 @@ class HiddenMarkovModelInitializer:
         logger.debug("Finish compute means")
 
         # Covariance
-        covariance = np.tile(np.eye(self.dim_of_feature), (self.num_of_states, 1, 1)) * 0.01
+        covariance = (np.tile(np.eye(self.dim_of_feature), (self.num_of_states, 1, 1)) * 0.01).astype(np.float32)
 
         # Init seed
         self._init_seed += 1
-        return transition_probs, np.array(means), covariance
+        return transition_probs, np.array(means, dtype=np.float32), covariance
 
     @property
     def init_counter(self) -> int:
@@ -210,18 +210,18 @@ class HiddenMarkovModel:
     isMultiProcessing: bool = field(default=True)
 
     # Internals
-    _transition_prob: NDArray = field(init=False)
-    _means: NDArray = field(init=False)
-    _covariances: NDArray = field(init=False)
+    _transition_prob: NDArray[np.float32] = field(init=False)
+    _means: NDArray[np.float32] = field(init=False)
+    _covariances: NDArray[np.float32] = field(init=False)
     _initializer: HiddenMarkovModelInitializer = field(init=False)
 
     def __post_init__(self) -> None:
         # Init all parameters
         
         ## Set up dimension
-        self._transition_prob   = np.zeros((self.num_of_states, self.num_of_states))
-        self._means             = np.zeros((self.num_of_states, self.dim_of_feature))
-        self._covariances       = np.zeros((self.num_of_states, self.dim_of_feature, self.dim_of_feature))
+        self._transition_prob   = np.zeros((self.num_of_states, self.num_of_states), dtype=np.float32)
+        self._means             = np.zeros((self.num_of_states, self.dim_of_feature), dtype=np.float32)
+        self._covariances       = np.zeros((self.num_of_states, self.dim_of_feature, self.dim_of_feature), dtype=np.float32)
 
         # logger.info(f"Finish initialize HMM for {str(self)}")
         return
@@ -323,8 +323,9 @@ class HiddenMarkovModel:
     
     def predict(self, signal: NDArray) -> float:
         assert signal.shape[1] == self.dim_of_feature
-
-        path, score = self._viterbi_fast(signal, self.num_of_states, self._means, self._transition_prob, self._covariances)
+        multivariate_normals: List[sp.stats._multivariate.multivariate_normal_gen] = \
+                    self.get_multivariate_normals(self._means, self._covariances)
+        path, score = self._viterbi_fast(signal, self.num_of_states, self._transition_prob, multivariate_normals)
         
         return score
 
@@ -363,23 +364,26 @@ class HiddenMarkovModel:
         # Segmentation
         logger.debug(f"Calculating Viterbi Path")
         sorted_signals: SortedSignals = SortedSignals(self.num_of_states)
+        multivariate_normals: List[sp.stats._multivariate.multivariate_normal_frozen] = \
+            self.get_multivariate_normals(self._means, self._covariances)
+        
         bar = tqdm(desc="Viterbi", total=len(train_data), position=0, disable=True)
         if self.isMultiProcessing:
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 for sequence, (viterbi_path, best_score) in zip(train_data, \
                     executor.map(functools.partial(self._viterbi_fast, \
-                        num_of_states=self.num_of_states, means=self._means, transition_probs=self._transition_prob, covariances=self._covariances), \
+                        num_of_states=self.num_of_states, transition_probs=self._transition_prob, multivariate_normals=multivariate_normals), \
                             train_data)):
                     sorted_signals.append(Signal(self.num_of_states, sequence, viterbi_path))
                     bar.update()
         else:
             for sequence in train_data:
-                viterbi_path, best_score = self._viterbi_fast(sequence, num_of_states=self.num_of_states, means=self._means, transition_probs=self._transition_prob, covariances=self._covariances)
+                viterbi_path, best_score = self._viterbi_fast(sequence, num_of_states=self.num_of_states, transition_probs=self._transition_prob, multivariate_normals=multivariate_normals)
                 sorted_signals.append(Signal(self.num_of_states, sequence, viterbi_path))
 
         bar.close()
 
-        sorted_signals.show_viterbi_path_str()
+        # sorted_signals.show_viterbi_path_str()
         # sorted_signals.show_viterbi_path_histogram()
 
         # Update parameters
@@ -470,23 +474,24 @@ class HiddenMarkovModel:
         return path, score
     
     @staticmethod
-    def _viterbi_fast(observation_sequence: NDArray[np.float32], num_of_states: int, means: NDArray[np.float32], transition_probs: NDArray[np.float32], covariances: NDArray) -> Tuple[NDArray[np.int8], float]:
+    def _viterbi_fast(observation_sequence: NDArray[np.float32], num_of_states: int, transition_probs: NDArray[np.float32], multivariate_normals: List[sp.stats._multivariate.multivariate_normal_frozen]) -> Tuple[NDArray[np.int8], float]:
+        # Check data type
+        assert observation_sequence.dtype == np.float32
+        assert transition_probs.dtype == np.float32
+
+        observation_sequence = observation_sequence.astype(np.float32)
         sequence_length: int = observation_sequence.shape[0]
         likelihoods: NDArray[np.float32] = np.full((sequence_length, num_of_states), -math.inf, dtype=np.float32) # can shrink the size
-        tracer: NDArray[np.int8] = np.full((sequence_length, num_of_states), -math.inf, dtype=np.int8)
+        tracer: NDArray[np.int8] = np.zeros((sequence_length, num_of_states), dtype=np.int8) - 1 # RuntimeWarning: invalid value encountered in cast if full -math.inf
 
-        likelihoods[0, 0] = sp.stats.multivariate_normal.logpdf(\
-                observation_sequence[0], means[0], covariances[0], \
-                    allow_singular=False)\
-                        + np.log(transition_probs[0, 0])
+        likelihoods[0, 0] = multivariate_normals[0].logpdf(observation_sequence[0]) \
+            + np.log(transition_probs[0, 0])
         logger.debug(f"Initial log likelihood is {likelihoods[0, 0]}")
         
         def get_likelihood(time: int, new_state: int, old_state: int) -> float:
             if transition_probs[old_state, new_state] == 0:
                 return -math.inf
-            result_p1: float = sp.stats.multivariate_normal.logpdf(\
-                observation_sequence[time], means[new_state], covariances[new_state], \
-                    allow_singular=False)
+            result_p1: float = multivariate_normals[new_state].logpdf(observation_sequence[time]).astype(np.float32)
             result_p2: float = np.log(transition_probs[old_state, new_state])
             result_p3: float = likelihoods[time - 1, old_state]
             result: float = result_p1 + result_p2 + result_p3
@@ -589,3 +594,8 @@ class HiddenMarkovModel:
         label, num_of_states, dim_of_feature = information
 
         return str(label), int(num_of_states), int(dim_of_feature)
+
+    @staticmethod
+    def get_multivariate_normals(means: NDArray[np.float32], covariances: NDArray[np.float32]) -> List[sp.stats._multivariate.multivariate_normal_frozen]:
+        return [sp.stats.multivariate_normal(mean=mean, cov=covariance) \
+                for mean, covariance in zip(means, covariances)]

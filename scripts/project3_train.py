@@ -16,14 +16,14 @@ train_dataset = ti_digits.train_dataset
 
 for label in TI_DIGITS_LABELS:
     logger.info("Start computing MFCCs")
-    train_dataset_mfccs = MFCC.batch(train_dataset[label][:10], sample_rate=16000)
+    train_dataset_mfccs = MFCC.batch(train_dataset[label], sample_rate=16000)
     logger.info("Finish computing MFCCs")
 
     # logging.getLogger().setLevel(logging.DEBUG)
     logger.info("Start initialize HMM model from data")
-    hmm = HiddenMarkovModel.from_data(label, 5, train_dataset_mfccs, k_means_max_iteration=100)
+    hmm = HiddenMarkovModel.from_data(label, 5, train_dataset_mfccs, k_means_max_iteration=100, isMultiProcessing=True)
     logger.info("Finish initialize HMM model from data")
 
     logger.info("Start saving HMM model")
-    hmm.save(".cache/small_model/")
+    hmm.save(".cache/big_model_2/")
     logger.info("Finish saving HMM model")
