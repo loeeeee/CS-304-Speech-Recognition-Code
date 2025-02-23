@@ -207,13 +207,13 @@ class HiddenMarkovModel:
 
     # Settings
     isTqdm: bool = field(default=True)
+    isMultiProcessing: bool = field(default=True)
 
     # Internals
     _transition_prob: NDArray = field(init=False)
     _means: NDArray = field(init=False)
     _covariances: NDArray = field(init=False)
     _initializer: HiddenMarkovModelInitializer = field(init=False)
-    _sample_signal: NDArray = field(init=False)
 
     def __post_init__(self) -> None:
         # Init all parameters
@@ -222,8 +222,6 @@ class HiddenMarkovModel:
         self._transition_prob   = np.zeros((self.num_of_states, self.num_of_states))
         self._means             = np.zeros((self.num_of_states, self.dim_of_feature))
         self._covariances       = np.zeros((self.num_of_states, self.dim_of_feature, self.dim_of_feature))
-
-        self._sample_signal = np.zeros((1,))
 
         # logger.info(f"Finish initialize HMM for {str(self)}")
         return
@@ -235,7 +233,8 @@ class HiddenMarkovModel:
         num_of_states: int, 
         train_data: List[NDArray], # A list of mfcc feature vector of each signal
         dim_of_feature: int = 39,
-        k_means_max_iteration: int = 100
+        k_means_max_iteration: int = 100,
+        isMultiProcessing: bool = True
         ) -> Self:
         # Validation
         assert len(train_data) >= 1
@@ -245,7 +244,7 @@ class HiddenMarkovModel:
 
         hmm = cls(num_of_states, dim_of_feature=dim_of_feature)
         hmm.label = label
-        hmm._sample_signal = train_data[0]
+        hmm.isMultiProcessing = isMultiProcessing
 
         # Transition probabilities
         ## It should not go back
@@ -365,13 +364,18 @@ class HiddenMarkovModel:
         logger.debug(f"Calculating Viterbi Path")
         sorted_signals: SortedSignals = SortedSignals(self.num_of_states)
         bar = tqdm(desc="Viterbi", total=len(train_data), position=0, disable=True)
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            for sequence, (viterbi_path, best_score) in zip(train_data, \
-                executor.map(functools.partial(self._viterbi_fast, \
-                    num_of_states=self.num_of_states, means=self._means, transition_probs=self._transition_prob, covariances=self._covariances), \
-                        train_data)):
+        if self.isMultiProcessing:
+            with concurrent.futures.ProcessPoolExecutor() as executor:
+                for sequence, (viterbi_path, best_score) in zip(train_data, \
+                    executor.map(functools.partial(self._viterbi_fast, \
+                        num_of_states=self.num_of_states, means=self._means, transition_probs=self._transition_prob, covariances=self._covariances), \
+                            train_data)):
+                    sorted_signals.append(Signal(self.num_of_states, sequence, viterbi_path))
+                    bar.update()
+        else:
+            for sequence in train_data:
+                viterbi_path, best_score = self._viterbi_fast(sequence, num_of_states=self.num_of_states, means=self._means, transition_probs=self._transition_prob, covariances=self._covariances)
                 sorted_signals.append(Signal(self.num_of_states, sequence, viterbi_path))
-                bar.update()
 
         bar.close()
 

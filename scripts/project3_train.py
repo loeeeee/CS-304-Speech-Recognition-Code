@@ -9,7 +9,7 @@ logging.getLogger().setLevel(logging.INFO)
 
 
 logger.info("Start loading dataset")
-ti_digits = TIDigits("./ConvertedTIDigits", isLazyLoading=False)
+ti_digits = TIDigits("./ConvertedTIDigits", isLazyLoading=True)
 logger.info("Finish loading dataset")
 
 train_dataset = ti_digits.train_dataset
