@@ -18,6 +18,37 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class MultivariateNormal:
+    dim_of_features: int = field(init=False)
+
+    # Internal
+    _core: sp.stats._multivariate.multivariate_normal_frozen = field(init=False)
+
+    @classmethod
+    def from_means_covariances(
+        cls, 
+        mean: NDArray[np.float32], 
+        covariance: NDArray[np.float32]
+        ) -> Self:
+        
+        mn = cls()
+
+        mn._core = sp.stats.multivariate_normal(
+            mean=mean, 
+            cov=covariance, 
+            allow_singular=False
+            )
+
+        mn.dim_of_features = mean.shape[0]
+
+        return mn
+    
+    def log_pdf(self, x: NDArray) -> float:
+        assert x.shape[0] == self.dim_of_features
+        return self._core.logpdf(x).astype(np.float32)
+
+
+@dataclass
 class HiddenMarkovModel:
     # Mains
     label: str
@@ -27,7 +58,7 @@ class HiddenMarkovModel:
     isTqdm: bool = field(default=True)
 
     # Internals
-    _multivariate_normals: List[sp.stats._multivariate.multivariate_normal_frozen] = field(default_factory=list)
+    _multivariate_normals: List[MultivariateNormal] = field(default_factory=list)
     _log_transition_probs: NDArray[np.float32] = field(init=False)
     _mfcc_feature_dimensions: int = field(init=False)
 
@@ -38,15 +69,18 @@ class HiddenMarkovModel:
     def num_of_states(self) -> int:
         return len(self._multivariate_normals)
 
+    @property
+    def dim_of_features(self) -> int:
+        return self._multivariate_normals[0].dim_of_features
+
     def predict(self, signal: NDArray[np.float32]) -> Tuple[float, NDArray[np.int8]]:
         assert len(self._multivariate_normals) > 0
         assert self._mfcc_feature_dimensions == signal.shape[1]
         return self._viterbi(signal)
 
     def _viterbi(self, observation_sequence: NDArray[np.float32]) -> Tuple[float, NDArray[np.int8]]:
-        # return self._viterbi_static(observation_sequence, self._transition_probs, self._multivariate_normals)
         initial_likelihood: NDArray[np.float32] = np.full((self.num_of_states), -float("inf"), dtype=np.float32)
-        initial_likelihood[0] = self._multivariate_normals[0].logpdf(observation_sequence[0]) \
+        initial_likelihood[0] = self._multivariate_normals[0].log_pdf(observation_sequence[0]) \
                     + self._log_transition_probs[0, 0]
         logger.debug(f"Initial log likelihood is {initial_likelihood[0]}")
         score, path = self._viterbi_static(
@@ -129,7 +163,7 @@ class HiddenMarkovModel:
         cls,
         observation_sequence: NDArray[np.float32], 
         log_transition_probabilities: NDArray[np.float32], 
-        multivariate_normals: List[sp.stats._multivariate.multivariate_normal_frozen],
+        multivariate_normals: List[MultivariateNormal],
         initial_likelihood: NDArray[np.float32]
         ) -> Tuple[float, NDArray[np.int8]]:
         
@@ -142,7 +176,7 @@ class HiddenMarkovModel:
         tracer: NDArray[np.int8] = np.zeros((sequence_length, num_of_states), dtype=np.int8) - 1 # RuntimeWarning: invalid value encountered in cast if full -math.inf
 
         for time in range(1, sequence_length):
-            for new_state in range(num_of_states):
+            for new_state in range(num_of_states): # Multi processing able
                 # Find best likelihood
                 current_max_likelihood: NDArray[np.float32] = np.full((num_of_states, ), -float("inf"))
                 for old_state in range(max(new_state-2, 0), new_state+1):
@@ -153,7 +187,7 @@ class HiddenMarkovModel:
                 max_index: np.intp = np.argmax(current_max_likelihood)
 
                 # Add multivariate normal here so we save compute
-                likelihoods_right[new_state] = max_value + multivariate_normals[new_state].logpdf(observation_sequence[time]).astype(np.float32)
+                likelihoods_right[new_state] = max_value + multivariate_normals[new_state].log_pdf(observation_sequence[time])
 
                 # Note the best path for each
                 tracer[time, new_state] = max_index
@@ -350,13 +384,14 @@ class HiddenMarkovModelTrainable(HiddenMarkovModel):
     def get_multivariate_normals(
         means: NDArray[np.float32], 
         covariances: NDArray[np.float32]
-        ) -> List[sp.stats._multivariate.multivariate_normal_frozen]:
-        return [sp.stats.multivariate_normal(mean=mean, cov=covariance) \
-                for mean, covariance in zip(means, covariances)]
+        ) -> List[MultivariateNormal]:
+        return [MultivariateNormal.from_means_covariances(mean=mean, covariance=covariance) \
+            for mean, covariance in zip(means, covariances)]
 
 
 @dataclass
 class HiddenMarkovModelInference:
+    
     _models: List[HiddenMarkovModel] = field(default_factory=list)
 
     @classmethod
@@ -370,7 +405,7 @@ class HiddenMarkovModelInference:
 # class HiddenMarkovModelInference:
 #     # Internal
 #     _label_locations: Dict[Tuple[int, int], TI_DIGITS_LABEL_TYPE] = field(default_factory=dict)
-#     _multivariate_normals: Dict[str, List[sp.stats._multivariate.multivariate_normal_frozen]] = field(default_factory=dict)
+#     _multivariate_normals: Dict[str, List[MultivariateNormal]] = field(default_factory=dict)
 #     _transition_probs: Dict[str, NDArray[np.float32]] = field(default_factory=dict)
 #     # _means: NDArray[np.float32] = field(init=False)
 #     # _covariances: NDArray[np.float32] = field(init=False)
