@@ -23,29 +23,37 @@ class ModelBoundary:
     ## Boundaries: Stores word starting position besides the first and the last word
     _boundaries: List[int] = field(default_factory=list)
 
+    # Cache
+    _cache_lower_boundaries: List[int] = field(init=False)
+    _cache_upper_boundaries: List[int] = field(init=False)
+
     @property
-    def lower_boundary(self) -> List[int]:
+    def lower_boundaries(self) -> List[int]:
         """
         Get lower boundary of each word, meaning its starting state index
 
         Returns:
             List[int]: A list of starting state index
         """
-        new_boundaries = [0]
-        new_boundaries.extend(self._boundaries[:-1])
-        return new_boundaries
+        if not hasattr(self, "_cache_lower_boundaries"):
+            new_boundaries = [0]
+            new_boundaries.extend(self._boundaries[:-1])
+            self._cache_lower_boundaries = new_boundaries
+        return self._cache_lower_boundaries
 
     @property
-    def upper_boundary(self) -> List[int]:
+    def upper_boundaries(self) -> List[int]:
         """
         Get upper boundary of each word, meaning its ending state index
 
         Returns:
             List[int]: A list of ending state index
         """
-        new_boundaries = self._boundaries.copy()
-        new_boundaries = [i - 1 for i in new_boundaries]
-        return new_boundaries
+        if not hasattr(self, "_cache_upper_boundaries"):
+            new_boundaries = self._boundaries.copy()
+            new_boundaries = [i - 1 for i in new_boundaries]
+            self._cache_upper_boundaries = new_boundaries
+        return self._cache_upper_boundaries
 
     @property
     def num_of_words(self) -> int:
@@ -70,7 +78,7 @@ class ModelBoundary:
         return
 
     def find_lower_boundary(self, state: int) -> int:
-        for lower_boundary in self.lower_boundary:
+        for lower_boundary in self.lower_boundaries:
             if state >= lower_boundary:
                 return lower_boundary
             else:
@@ -521,6 +529,7 @@ class HiddenMarkovModelInference:
         return hmm_inference
 
     def predict(self, signal: NDArray[np.float32]) -> str:
+        
         ...
 
     @classmethod
@@ -531,6 +540,7 @@ class HiddenMarkovModelInference:
         multivariate_normals: List[MultivariateNormal],
         initial_likelihood: NDArray[np.float32],
         model_boundaries: ModelBoundary,
+        log_transition_probability_between_words: float,
         ) -> Tuple[float, NDArray[np.int8]]:
         
         num_of_states: int = len(multivariate_normals)
@@ -549,20 +559,13 @@ class HiddenMarkovModelInference:
 
             # First situation: new_state not in word boundaries
             logger.debug(f"Not in model boundaries")
-            lower_boundary_disposable = model_boundaries.lower_boundary
-            upper_boundary_disposable = model_boundaries.upper_boundary
-
             for new_state in range(num_of_states): # Multi processing able
-                if new_state in model_boundaries.lower_boundary:
+                if new_state in model_boundaries.lower_boundaries:
                     # Skip when transition from another word is possible
                     continue
 
                 # Find lower boundary for current state
-                lower_boundary = lower_boundary_disposable[0]
-                upper_boundary = upper_boundary_disposable[0]
-                if new_state > upper_boundary:
-                    lower_boundary = lower_boundary_disposable.pop(0)
-                    upper_boundary = upper_boundary_disposable.pop(0)
+                lower_boundary = model_boundaries.find_lower_boundary(new_state)
 
                 # Find best likelihood
                 current_max_likelihood: NDArray[np.float32] = np.full((num_of_states, ), -float("inf"))
@@ -571,9 +574,9 @@ class HiddenMarkovModelInference:
                             + log_transition_probabilities[(old_state, new_state)]\
                                 + likelihoods_left[old_state]
                 max_value: np.float32 = np.max(current_max_likelihood)
-                max_index: np.intp = np.argmax(current_max_likelihood)
+                max_index: int = int(np.argmax(current_max_likelihood))
 
-                # Add multivariate normal here so we save compute
+                # Use multivariate normal here so we save compute
                 likelihoods_right[new_state] = max_value + multivariate_normals[new_state].log_pdf(observation_sequence[time])
 
                 # Note the best path for each
@@ -581,10 +584,33 @@ class HiddenMarkovModelInference:
 
             # Second situation: new state in word boundaries
             logger.debug(f"In model boundaries")
-            for new_state in model_boundaries.lower_boundary:
+            for new_state in model_boundaries.lower_boundaries:
                 current_max_likelihood: NDArray[np.float32] = np.full((model_boundaries.num_of_words + 1, ), -float("inf"))
-                for old_state in model_boundaries.upper_boundary:
-                    pass
+                # Transition from current word
+                current_max_likelihood[-1] = \
+                            + log_transition_probabilities[(new_state, new_state)]\
+                                + likelihoods_left[new_state]
+
+                # Transition from other words
+                for index, old_state in enumerate(model_boundaries.upper_boundaries):
+                    current_max_likelihood[index] = \
+                            + log_transition_probability_between_words\
+                                + likelihoods_left[old_state]
+
+                max_value: np.float32 = np.max(current_max_likelihood)
+                max_index_upper_boundaries: int = int(np.argmax(current_max_likelihood))
+                if max_index_upper_boundaries == model_boundaries.num_of_words:
+                    # Simple situation
+                    max_index: int = new_state
+                else:
+                    # Translate back
+                    max_index: int = model_boundaries.upper_boundaries[max_index_upper_boundaries]
+
+                # Use multivariate normal here so we save compute
+                likelihoods_right[new_state] = max_value + multivariate_normals[new_state].log_pdf(observation_sequence[time])
+
+                # Note the best path for each
+                tracer[time, new_state] = max_index
                 pass
 
             # Move array for next iteration
@@ -592,14 +618,19 @@ class HiddenMarkovModelInference:
             likelihoods_right = np.full((num_of_states), -float("inf"), dtype=np.float32)
 
         # score: float = likelihoods[-1, -1]
-        score: float = likelihoods_left[-1]
+        scores: NDArray = likelihoods_left[model_boundaries.upper_boundaries]
+        logger.info(f"Scores are {scores}")
+        best_score: float = np.max(scores)
+        best_score_index: int = int(np.argmax(scores))
+        ## Translate back
+        best_score_index = model_boundaries.upper_boundaries[best_score_index]
 
         # Find the path
-        prev_state: int = tracer[-1, -1]
+        prev_state: int = tracer[-1, best_score_index]
         path: NDArray = np.zeros((sequence_length, ), dtype=np.int8)
         path[-1] = prev_state
         
         for time in range(sequence_length - 2, 0, -1):
             path[time] = prev_state
             prev_state = tracer[time, prev_state]
-        return score, path
+        return best_score, path
