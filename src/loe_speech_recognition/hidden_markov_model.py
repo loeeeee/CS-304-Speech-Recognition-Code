@@ -528,9 +528,23 @@ class HiddenMarkovModelInference:
         
         return hmm_inference
 
-    def predict(self, signal: NDArray[np.float32]) -> str:
-        
-        ...
+    def _viterbi(self, observation_sequence: NDArray[np.float32]) -> Tuple[float, NDArray[np.int8]]:
+        initial_likelihood: NDArray[np.float32] = np.full((len(self._multivariate_normals)), -float("inf"), dtype=np.float32)
+        for lower_boundary in self._model_boundaries.lower_boundaries:
+            initial_likelihood[lower_boundary] = self._multivariate_normals[lower_boundary].log_pdf(observation_sequence[0]) \
+                        + self._log_transition_probs[lower_boundary, lower_boundary]
+        logger.debug(f"One of initial log likelihood is {initial_likelihood[0]}")
+
+        logger.info(f"Start finding best match")
+        score, path = self._viterbi_static(
+            observation_sequence=observation_sequence,
+            log_transition_probabilities=self._log_transition_probs,
+            multivariate_normals=self._multivariate_normals,
+            initial_likelihood=initial_likelihood,
+            model_boundaries=self._model_boundaries,
+            log_transition_probability_between_words=np.log(0.05),
+            )
+        return score, path
 
     @classmethod
     def _viterbi_static(
