@@ -22,10 +22,14 @@ class ModelBoundary:
     # Internals
     ## Boundaries: Stores word starting position besides the first and the last word
     _boundaries: List[int] = field(default_factory=list)
+    _labels: List[str] = field(default_factory=list)
 
     # Cache
     _cache_lower_boundaries: List[int] = field(init=False)
     _cache_upper_boundaries: List[int] = field(init=False)
+
+    # Flag
+    _isFrozen: bool = field(default=False)
 
     @property
     def lower_boundaries(self) -> List[int]:
@@ -39,6 +43,7 @@ class ModelBoundary:
             new_boundaries = [0]
             new_boundaries.extend(self._boundaries[:-1])
             self._cache_lower_boundaries = new_boundaries
+            self._isFrozen = True
         return self._cache_lower_boundaries
 
     @property
@@ -53,11 +58,12 @@ class ModelBoundary:
             new_boundaries = self._boundaries.copy()
             new_boundaries = [i - 1 for i in new_boundaries]
             self._cache_upper_boundaries = new_boundaries
+            self._isFrozen = True
         return self._cache_upper_boundaries
 
     @property
     def num_of_words(self) -> int:
-        return len(self._boundaries) - 1
+        return len(self._boundaries)
 
     def append(self, num_of_states: int) -> None:
         """
@@ -66,6 +72,9 @@ class ModelBoundary:
         Args:
             num_of_states (int): Number of states
         """
+        if self._isFrozen:
+            logger.error("Adding data after cache is created")
+            raise Exception
         try:
             self._boundaries.append(
                 self._boundaries[-1] + num_of_states
@@ -80,10 +89,31 @@ class ModelBoundary:
     def find_lower_boundary(self, state: int) -> int:
         for lower_boundary in self.lower_boundaries:
             if state >= lower_boundary:
+                logger.debug(f"Find lower boundary {lower_boundary}")
                 return lower_boundary
             else:
                 continue
+        logger.error(f"Failed to find lower boundary for state {state}")
         raise Exception
+
+    def add_model_labels(self, model_labels: List[str]) -> None:
+        assert len(model_labels) == self.num_of_words
+        self._labels = model_labels
+        return
+
+    def get_labels(self, path: NDArray[np.int8]) -> List[str]:
+        path_list: List[int] = path.tolist()
+        labels: List[str] = []
+        for state in path_list:
+            labels.append(self.get_label(state))
+        return labels
+
+    def get_label(self, state: int) -> str:
+        lower_boundary = self.find_lower_boundary(state)
+        label_index: int = self.lower_boundaries.index(lower_boundary)
+        label: str = self._labels[label_index]
+        logger.debug(f"Get label index {label_index}, corresponding to label {label}")
+        return label
 
 
 @dataclass
@@ -475,7 +505,6 @@ class HiddenMarkovModelInference:
     _multivariate_normals: List[MultivariateNormal] = field(default_factory=list)
     _log_transition_probs: SparseMatrix = field(init=False)
     _model_boundaries: ModelBoundary = field(init=False)
-    _model_labels: List[str] = field(default_factory=list)
 
     @classmethod
     def from_folder(cls, folder_path: str, models_to_load: List[str]) -> Self:
@@ -523,10 +552,16 @@ class HiddenMarkovModelInference:
                             [(row_counter, column_starting_point + column_index)] = probability
 
         hmm_inference._multivariate_normals = multivariate_normals
-        hmm_inference._model_labels = model_labels        
+        # Model boundaries
+        model_boundaries.add_model_labels(model_labels)
         hmm_inference._model_boundaries = model_boundaries
         
         return hmm_inference
+
+    def predict(self, signal: NDArray[np.float32]) -> List[str]:
+        score, path = self._viterbi(observation_sequence=signal)
+        labels = self._model_boundaries.get_labels(path)
+        return labels
 
     def _viterbi(self, observation_sequence: NDArray[np.float32]) -> Tuple[float, NDArray[np.int8]]:
         initial_likelihood: NDArray[np.float32] = np.full((len(self._multivariate_normals)), -float("inf"), dtype=np.float32)
