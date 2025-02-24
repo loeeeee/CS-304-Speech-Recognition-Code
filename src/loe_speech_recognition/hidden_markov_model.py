@@ -6,7 +6,6 @@ import logging
 import concurrent.futures
 import pickle
 
-from numpy._core.defchararray import upper
 from numpy.typing import NDArray
 import numpy as np
 import scipy as sp
@@ -16,6 +15,67 @@ from .ti_digits import TI_DIGITS_LABEL_TYPE
 from .signal import Signal, SortedSignals
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ModelBoundary:
+    # Internals
+    ## Boundaries: Stores word starting position besides the first and the last word
+    _boundaries: List[int] = field(default_factory=list)
+
+    @property
+    def lower_boundary(self) -> List[int]:
+        """
+        Get lower boundary of each word, meaning its starting state index
+
+        Returns:
+            List[int]: A list of starting state index
+        """
+        new_boundaries = [0]
+        new_boundaries.extend(self._boundaries[:-1])
+        return new_boundaries
+
+    @property
+    def upper_boundary(self) -> List[int]:
+        """
+        Get upper boundary of each word, meaning its ending state index
+
+        Returns:
+            List[int]: A list of ending state index
+        """
+        new_boundaries = self._boundaries.copy()
+        new_boundaries = [i - 1 for i in new_boundaries]
+        return new_boundaries
+
+    @property
+    def num_of_words(self) -> int:
+        return len(self._boundaries) - 1
+
+    def append(self, num_of_states: int) -> None:
+        """
+        Note the number of states current word has
+
+        Args:
+            num_of_states (int): Number of states
+        """
+        try:
+            self._boundaries.append(
+                self._boundaries[-1] + num_of_states
+            )
+        except IndexError:
+            self._boundaries.append(
+                num_of_states
+            )
+            logger.info(f"Init boundary internal array")
+        return
+
+    def find_lower_boundary(self, state: int) -> int:
+        for lower_boundary in self.lower_boundary:
+            if state >= lower_boundary:
+                return lower_boundary
+            else:
+                continue
+        raise Exception
 
 
 @dataclass
@@ -406,7 +466,7 @@ class HiddenMarkovModelInference:
     
     _multivariate_normals: List[MultivariateNormal] = field(default_factory=list)
     _log_transition_probs: SparseMatrix = field(init=False)
-    _model_boundaries: List[int] = field(init=False)
+    _model_boundaries: ModelBoundary = field(init=False)
     _model_labels: List[str] = field(default_factory=list)
 
     @classmethod
@@ -417,7 +477,7 @@ class HiddenMarkovModelInference:
         log_transition_probabilities: List[NDArray[np.float32]] = []
         multivariate_normals: List[MultivariateNormal] = []
         model_labels: List[str] = []
-        model_boundaries: List[int] = [0]
+        model_boundaries: ModelBoundary = ModelBoundary()
         # Walk the directory
         for model_folder_name in os.listdir(folder_path):
             label = HiddenMarkovModel._model_folder_name_parser(folder_path)
@@ -435,17 +495,12 @@ class HiddenMarkovModelInference:
             multivariate_normals_file_path: str = os.path.join(model_folder_path, "multivariate_normals.pickle")
             with open(multivariate_normals_file_path, "rb") as f:
                 multivariate_normals = pickle.load(f)
-
-            # Calculate ending position
-            num_of_states: int = len(multivariate_normals)
-            starting_states: int = model_boundaries[0]
-            ending_position: int = num_of_states + starting_states
-
+            
             # Put into structure
             log_transition_probabilities.append(log_transition_probability)
             multivariate_normals.extend(multivariate_normals)
+            model_boundaries.append(len(multivariate_normals))
             model_labels.append(label)
-            model_boundaries.append(ending_position)
 
             logger.info(f"Finish loading all files for {str(label)} model")
 
@@ -461,8 +516,6 @@ class HiddenMarkovModelInference:
 
         hmm_inference._multivariate_normals = multivariate_normals
         hmm_inference._model_labels = model_labels        
-
-        model_boundaries.pop() # Remove the top one, as no new words would be there
         hmm_inference._model_boundaries = model_boundaries
         
         return hmm_inference
@@ -477,7 +530,7 @@ class HiddenMarkovModelInference:
         log_transition_probabilities: SparseMatrix, 
         multivariate_normals: List[MultivariateNormal],
         initial_likelihood: NDArray[np.float32],
-        model_boundaries: List[int],
+        model_boundaries: ModelBoundary,
         ) -> Tuple[float, NDArray[np.int8]]:
         
         num_of_states: int = len(multivariate_normals)
@@ -496,20 +549,20 @@ class HiddenMarkovModelInference:
 
             # First situation: new_state not in word boundaries
             logger.debug(f"Not in model boundaries")
-            model_boundaries_disposable = model_boundaries.copy()
-            model_boundaries_disposable.append(num_of_states)
+            lower_boundary_disposable = model_boundaries.lower_boundary
+            upper_boundary_disposable = model_boundaries.upper_boundary
 
             for new_state in range(num_of_states): # Multi processing able
-                if new_state in model_boundaries:
+                if new_state in model_boundaries.lower_boundary:
                     # Skip when transition from another word is possible
                     continue
 
                 # Find lower boundary for current state
-                lower_boundary = model_boundaries_disposable[0]
-                upper_boundary = model_boundaries_disposable[1]
-                if new_state >= upper_boundary:
-                    lower_boundary = upper_boundary
-                    model_boundaries_disposable.pop(0)
+                lower_boundary = lower_boundary_disposable[0]
+                upper_boundary = upper_boundary_disposable[0]
+                if new_state > upper_boundary:
+                    lower_boundary = lower_boundary_disposable.pop(0)
+                    upper_boundary = upper_boundary_disposable.pop(0)
 
                 # Find best likelihood
                 current_max_likelihood: NDArray[np.float32] = np.full((num_of_states, ), -float("inf"))
@@ -528,10 +581,10 @@ class HiddenMarkovModelInference:
 
             # Second situation: new state in word boundaries
             logger.debug(f"In model boundaries")
-            num_of_boundaries: int = len(model_boundaries)
-            for new_state in model_boundaries:
-                current_max_likelihood: NDArray[np.float32] = np.full((num_of_boundaries + 1, ), -float("inf"))
-                for old_state in model_boundaries
+            for new_state in model_boundaries.lower_boundary:
+                current_max_likelihood: NDArray[np.float32] = np.full((model_boundaries.num_of_words + 1, ), -float("inf"))
+                for old_state in model_boundaries.upper_boundary:
+                    pass
                 pass
 
             # Move array for next iteration
