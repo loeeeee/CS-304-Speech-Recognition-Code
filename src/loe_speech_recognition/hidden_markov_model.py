@@ -236,7 +236,7 @@ class HiddenMarkovModel:
             raise FileNotFoundError
         
         # Find basics
-        label, mfcc_feature_dimensions = cls._model_folder_name_parser(model_folder_path)
+        label = cls._model_folder_name_parser(model_folder_path)
         model = cls(label)
 
         # Create model
