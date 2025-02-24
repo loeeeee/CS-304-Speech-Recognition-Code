@@ -1,4 +1,4 @@
-from loe_speech_recognition import TIDigits, HiddenMarkovModel, MFCC, TI_DIGITS_LABELS
+from loe_speech_recognition import TIDigits, HiddenMarkovModelTrainable, MFCC, TI_DIGITS_LABELS
 
 import logging
 
@@ -21,9 +21,15 @@ for label in TI_DIGITS_LABELS:
 
     # logging.getLogger().setLevel(logging.DEBUG)
     logger.info("Start initialize HMM model from data")
-    hmm = HiddenMarkovModel.from_data(label, 5, train_dataset_mfccs, k_means_max_iteration=100, isMultiProcessing=True)
+    hmm = HiddenMarkovModelTrainable.from_data(
+        label, 
+        train_dataset_mfccs,
+        num_of_states=5,
+        max_iterations=100, 
+        isMultiProcessingTraining=True,
+        )
     logger.info("Finish initialize HMM model from data")
 
     logger.info("Start saving HMM model")
-    hmm.save(".cache/big_model_2/")
+    hmm.save(".cache/big_model/")
     logger.info("Finish saving HMM model")
