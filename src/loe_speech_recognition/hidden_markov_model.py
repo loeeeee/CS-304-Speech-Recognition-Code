@@ -1,11 +1,12 @@
 from dataclasses import dataclass, field
 import functools
 import os
-from typing import Dict, List, Self, Tuple, no_type_check
+from typing import Dict, Generic, List, Self, Tuple, no_type_check
 import logging
 import concurrent.futures
 import pickle
 
+from numpy._core.defchararray import upper
 from numpy.typing import NDArray
 import numpy as np
 import scipy as sp
@@ -15,6 +16,23 @@ from .ti_digits import TI_DIGITS_LABEL_TYPE
 from .signal import Signal, SortedSignals
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SparseMatrix:
+    # Internals
+    _core: Dict[Tuple[int, ...], float] = field(default_factory=dict)
+
+    def __getitem__(self, key: Tuple[int, ...]) -> float:
+        if key in self._core:
+            return self._core[key]
+        else:
+            return 0.
+
+    def __setitem__(self, key: Tuple[int, ...], value: float) -> None:
+        if key in self._core:
+            logger.warning(f"{key} already in the matrix")
+        self._core[key] = value
 
 
 @dataclass
@@ -60,7 +78,6 @@ class HiddenMarkovModel:
     # Internals
     _multivariate_normals: List[MultivariateNormal] = field(default_factory=list)
     _log_transition_probs: NDArray[np.float32] = field(init=False)
-    _mfcc_feature_dimensions: int = field(init=False)
 
     def __str__(self) -> str:
         return self.label
@@ -75,7 +92,7 @@ class HiddenMarkovModel:
 
     def predict(self, signal: NDArray[np.float32]) -> Tuple[float, NDArray[np.int8]]:
         assert len(self._multivariate_normals) > 0
-        assert self._mfcc_feature_dimensions == signal.shape[1]
+        assert self.dim_of_features == signal.shape[1]
         return self._viterbi(signal)
 
     def _viterbi(self, observation_sequence: NDArray[np.float32]) -> Tuple[float, NDArray[np.int8]]:
@@ -94,7 +111,7 @@ class HiddenMarkovModel:
     def save(self, parent_folder_path: str = "./cache") -> None:
         model_folder: str = os.path.join(
             parent_folder_path, 
-            f"{self.label}#{self._mfcc_feature_dimensions}")
+            f"{self.label}")
         logger.info(f"Saving files to {model_folder}")
         if not os.path.isdir(model_folder):
             logger.info(f"Folder {model_folder} do not exists, creating the folder")
@@ -123,7 +140,6 @@ class HiddenMarkovModel:
         # Find basics
         label, mfcc_feature_dimensions = cls._model_folder_name_parser(model_folder_path)
         model = cls(label)
-        model._mfcc_feature_dimensions = mfcc_feature_dimensions
 
         # Create model
 
@@ -131,17 +147,16 @@ class HiddenMarkovModel:
         log_trans_probs_file_path: str = os.path.join(model_folder_path, "log_trans_probs.npy")
         model._log_transition_probs = np.load(log_trans_probs_file_path)
 
-        # Save multivariate
+        # Load multivariate
         multivariate_normals_file_path: str = os.path.join(model_folder_path, "multivariate_normals.pickle")
         with open(multivariate_normals_file_path, "rb") as f:
             model._multivariate_normals = pickle.load(f)
 
-        logger.info(f"Finish saving all files for {str(model)} model")
+        logger.info(f"Finish loading all files for {str(model)} model")
         return model
 
     @staticmethod
-    @no_type_check
-    def _model_folder_name_parser(folder_path: str) -> Tuple[str, int]:
+    def _model_folder_name_parser(folder_path: str) -> str:
         """
         Parse folder name of each model
 
@@ -149,14 +164,12 @@ class HiddenMarkovModel:
             folder_path (str): Full path of the folder
 
         Returns:
-            Tuple[str, int, int]: Label, Number of states, Dimension of features
+            str: Label
         """
-        information: Tuple[str, int] = tuple(folder_path.split("/")[-1].split("#"))
-        logger.info(f"Folder name parsed, {information}")
-        
-        label, dim_of_features = information
+        label: str = folder_path.split("/")[-1]
+        logger.info(f"Folder name parsed, {label}")
 
-        return str(label), int(dim_of_features)
+        return str(label)
 
     @classmethod
     def _viterbi_static(
@@ -277,8 +290,7 @@ class HiddenMarkovModelTrainable(HiddenMarkovModel):
 
         # Calculate the inference necessary things
         logger.info("Calculate the inference necessary things")
-        model._update_inference_weights()
-        model._mfcc_feature_dimensions = model._covariances.shape[1]
+        model._update_inference_weights() # This is needed because when coverage, the update would be skipped
         logger.info("Finish calculating")
         return model
 
@@ -392,54 +404,149 @@ class HiddenMarkovModelTrainable(HiddenMarkovModel):
 @dataclass
 class HiddenMarkovModelInference:
     
-    _models: List[HiddenMarkovModel] = field(default_factory=list)
+    _multivariate_normals: List[MultivariateNormal] = field(default_factory=list)
+    _log_transition_probs: SparseMatrix = field(init=False)
+    _model_boundaries: List[int] = field(init=False)
+    _model_labels: List[str] = field(default_factory=list)
 
     @classmethod
-    def from_folder(cls, folder_path, models_to_load: List[str]) -> Self:
-        ...
+    def from_folder(cls, folder_path: str, models_to_load: List[str]) -> Self:
+        # Create new object
+        hmm_inference = cls()
+
+        log_transition_probabilities: List[NDArray[np.float32]] = []
+        multivariate_normals: List[MultivariateNormal] = []
+        model_labels: List[str] = []
+        model_boundaries: List[int] = [0]
+        # Walk the directory
+        for model_folder_name in os.listdir(folder_path):
+            label = HiddenMarkovModel._model_folder_name_parser(folder_path)
+            if not label in models_to_load:
+                logger.info(f"Skipping {model_folder_name}, because it is not models to load")
+                continue
+
+            # Load the model
+            model_folder_path = os.path.join(folder_path, model_folder_name)
+            # Load transition
+            log_trans_probs_file_path: str = os.path.join(model_folder_path, "log_trans_probs.npy")
+            log_transition_probability = np.load(log_trans_probs_file_path)
+
+            # Load multivariate
+            multivariate_normals_file_path: str = os.path.join(model_folder_path, "multivariate_normals.pickle")
+            with open(multivariate_normals_file_path, "rb") as f:
+                multivariate_normals = pickle.load(f)
+
+            # Calculate ending position
+            num_of_states: int = len(multivariate_normals)
+            starting_states: int = model_boundaries[0]
+            ending_position: int = num_of_states + starting_states
+
+            # Put into structure
+            log_transition_probabilities.append(log_transition_probability)
+            multivariate_normals.extend(multivariate_normals)
+            model_labels.append(label)
+            model_boundaries.append(ending_position)
+
+            logger.info(f"Finish loading all files for {str(label)} model")
+
+        row_counter: int = -1
+        for log_transition_probability in log_transition_probabilities:
+            column_starting_point: int = row_counter
+            for row in log_transition_probability:
+                row_counter += 1
+                for column_index, probability in enumerate(row):
+                    if probability != -float("inf"):
+                        hmm_inference._log_transition_probs\
+                            [(row_counter, column_starting_point + column_index)] = probability
+
+        hmm_inference._multivariate_normals = multivariate_normals
+        hmm_inference._model_labels = model_labels        
+
+        model_boundaries.pop() # Remove the top one, as no new words would be there
+        hmm_inference._model_boundaries = model_boundaries
+        
+        return hmm_inference
 
     def predict(self, signal: NDArray[np.float32]) -> str:
         ...
 
-# @dataclass
-# class HiddenMarkovModelInference:
-#     # Internal
-#     _label_locations: Dict[Tuple[int, int], TI_DIGITS_LABEL_TYPE] = field(default_factory=dict)
-#     _multivariate_normals: Dict[str, List[MultivariateNormal]] = field(default_factory=dict)
-#     _transition_probs: Dict[str, NDArray[np.float32]] = field(default_factory=dict)
-#     # _means: NDArray[np.float32] = field(init=False)
-#     # _covariances: NDArray[np.float32] = field(init=False)
-
-#     def __post_init__(self) -> None:
-#         logger.debug(f"An HMM inference object created")
-
-#     @classmethod
-#     def load_from_folder(cls, folder_path: str, models_to_load: List[str]) -> Self:
-#         for dir_name in os.listdir(folder_path):
-#             dir_path = os.path.join(folder_path, dir_name)
-#             label, number_of_states, dim_of_features = cls._model_folder_name_parser(dir_path)
-            
-#         ...
-
-#     def predict(self, signal: NDArray[np.float32]) -> str:
-#         ...
-
-#     @staticmethod
-#     @no_type_check
-#     def _model_folder_name_parser(folder_path: str) -> Tuple[str, int, int]:
-#         """
-#         Parse folder name of each model
-
-#         Args:
-#             folder_path (str): Full path of the folder
-
-#         Returns:
-#             Tuple[str, int, int]: Label, Number of states, Dimension of features
-#         """
-#         information: Tuple[str, int, int] = tuple(folder_path.split("/")[-1].split("#"))
-#         logger.info(f"Folder name parsed, {information}")
+    @classmethod
+    def _viterbi_static(
+        cls,
+        observation_sequence: NDArray[np.float32], 
+        log_transition_probabilities: SparseMatrix, 
+        multivariate_normals: List[MultivariateNormal],
+        initial_likelihood: NDArray[np.float32],
+        model_boundaries: List[int],
+        ) -> Tuple[float, NDArray[np.int8]]:
         
-#         label, num_of_states, dim_of_features = information
+        num_of_states: int = len(multivariate_normals)
+        sequence_length: int = observation_sequence.shape[0]
+        likelihoods_left = initial_likelihood
 
-#         return str(label), int(num_of_states), int(dim_of_features)
-#         ...
+        # Init array
+        likelihoods_right: NDArray[np.float32] = np.full((num_of_states), -float("inf"), dtype=np.float32)
+        tracer: NDArray[np.int8] = np.zeros(
+            (sequence_length, num_of_states), 
+            dtype=np.int8
+            ) - 1 
+            # RuntimeWarning: invalid value encountered in cast if full -math.inf
+
+        for time in range(1, sequence_length):
+
+            # First situation: new_state not in word boundaries
+            logger.debug(f"Not in model boundaries")
+            model_boundaries_disposable = model_boundaries.copy()
+            model_boundaries_disposable.append(num_of_states)
+
+            for new_state in range(num_of_states): # Multi processing able
+                if new_state in model_boundaries:
+                    # Skip when transition from another word is possible
+                    continue
+
+                # Find lower boundary for current state
+                lower_boundary = model_boundaries_disposable[0]
+                upper_boundary = model_boundaries_disposable[1]
+                if new_state >= upper_boundary:
+                    lower_boundary = upper_boundary
+                    model_boundaries_disposable.pop(0)
+
+                # Find best likelihood
+                current_max_likelihood: NDArray[np.float32] = np.full((num_of_states, ), -float("inf"))
+                for old_state in range(max(new_state-2, lower_boundary), new_state+1):
+                    current_max_likelihood[old_state] = \
+                            + log_transition_probabilities[(old_state, new_state)]\
+                                + likelihoods_left[old_state]
+                max_value: np.float32 = np.max(current_max_likelihood)
+                max_index: np.intp = np.argmax(current_max_likelihood)
+
+                # Add multivariate normal here so we save compute
+                likelihoods_right[new_state] = max_value + multivariate_normals[new_state].log_pdf(observation_sequence[time])
+
+                # Note the best path for each
+                tracer[time, new_state] = max_index
+
+            # Second situation: new state in word boundaries
+            logger.debug(f"In model boundaries")
+            num_of_boundaries: int = len(model_boundaries)
+            for new_state in model_boundaries:
+                current_max_likelihood: NDArray[np.float32] = np.full((num_of_boundaries + 1, ), -float("inf"))
+                for old_state in model_boundaries
+                pass
+
+            # Move array for next iteration
+            likelihoods_left = likelihoods_right
+            likelihoods_right = np.full((num_of_states), -float("inf"), dtype=np.float32)
+
+        # score: float = likelihoods[-1, -1]
+        score: float = likelihoods_left[-1]
+
+        # Find the path
+        prev_state: int = tracer[-1, -1]
+        path: NDArray = np.zeros((sequence_length, ), dtype=np.int8)
+        path[-1] = prev_state
+        
+        for time in range(sequence_length - 2, 0, -1):
+            path[time] = prev_state
+            prev_state = tracer[time, prev_state]
+        return score, path
