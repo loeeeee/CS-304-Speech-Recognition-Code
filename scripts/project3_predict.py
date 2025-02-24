@@ -1,5 +1,6 @@
+from typing import List, Tuple
 from numpy.typing import NDArray
-from loe_speech_recognition import TIDigits, HiddenMarkovModel, MFCC, TI_DIGITS_LABELS, ModelCollection
+from loe_speech_recognition import TIDigits, MFCC, TI_DIGITS_LABELS, ModelCollection, DataLoader
 
 import logging
 import concurrent.futures
@@ -13,65 +14,79 @@ logging.basicConfig(filename='./runtime.log',
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger().setLevel(logging.INFO)
 
-logger.info("Start loading dataset")
-ti_digits = TIDigits("./ConvertedTIDigits", isLazyLoading=True)
-logger.info("Finish loading dataset")
+def make_prediction(mc: ModelCollection, dataset: DataLoader) -> Tuple[List[str], List[str]]:
+    overall_bar = tqdm(desc="Overall Progress", total=len(TI_DIGITS_LABELS), position=0)
+    truth: List[str] = []
+    pred: List[str] = []
+    for index, label in enumerate(TI_DIGITS_LABELS):
+        logger.info(f"Index {index} is label {label}")
+        # Seen data
+        dataset_mfccs = MFCC.batch(dataset[label], sample_rate=16000)
+        local_bar = tqdm(desc="Local Progress", total=len(dataset_mfccs), position=1, leave=False)
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            for pred_label in executor.map(mc.predict, dataset_mfccs):
+                pred.append(pred_label)
+                truth.append(label)
+                local_bar.update()
+        overall_bar.update()
+    return truth, pred
 
-train_dataset = ti_digits.train_dataset
-test_dataset = ti_digits.test_dataset
+def plot_confusion_matrix_from_lists(predictions, ground_truth, class_names, title='Confusion Matrix', figsize=(8, 6)):
+    """
+    Plots a confusion matrix from lists of predictions and ground truth.
 
-mc = ModelCollection.load_from_files(".cache/big_model", 5, 39)
+    Args:
+        predictions (list): List of predicted class labels.
+        ground_truth (list): List of true class labels.
+        class_names (list): List of class names (labels) for the axes.
+        title (str, optional): Title of the plot. Defaults to 'Confusion Matrix'.
+        cmap (matplotlib.colors.Colormap, optional): Matplotlib colormap. Defaults to plt.cm.Blues.
+        figsize (tuple, optional): Figure size (width, height). Defaults to (8, 6).
+    """
 
-train_data_confusion_matrix = np.zeros((len(TI_DIGITS_LABELS), len(TI_DIGITS_LABELS)))
-test_data_confusion_matrix = np.zeros((len(TI_DIGITS_LABELS), len(TI_DIGITS_LABELS)))
-overall_bar = tqdm(desc="Overall Progress", total=len(TI_DIGITS_LABELS), position=1)
-for index, label in enumerate(TI_DIGITS_LABELS):
-    logger.info(f"Index {index} is label {label}")
-    # Seen data
-    train_dataset_mfccs = MFCC.batch(train_dataset[label], sample_rate=16000)
-    local_bar = tqdm(desc="Local Progress", total=len(train_dataset_mfccs), position=0)
-    with concurrent.futures.ProcessPoolExecutor() as executor:
-        for pred_label in executor.map(mc.predict, train_dataset_mfccs):
-            pred_index = TI_DIGITS_LABELS[pred_label]
-            train_data_confusion_matrix[index, pred_index] += 1
-            local_bar.update()
+    # Create the confusion matrix
+    num_classes = len(class_names)
+    confusion_matrix = np.zeros((num_classes, num_classes), dtype=int)
 
-    # Unseen data
-    test_dataset_mfccs = MFCC.batch(test_dataset[label], sample_rate=16000)
-    local_bar = tqdm(desc="Local Progress", total=len(test_dataset_mfccs), position=0)
-    with concurrent.futures.ProcessPoolExecutor() as executor:
-        for pred_label in executor.map(mc.predict, test_dataset_mfccs):
-            pred_index = TI_DIGITS_LABELS[pred_label]
-            test_data_confusion_matrix[index, pred_index] += 1
-            local_bar.update()
-    
-    overall_bar.update()
+    for true_label, predicted_label in zip(ground_truth, predictions):
+        true_index = class_names.index(true_label)
+        predicted_index = class_names.index(predicted_label)
+        confusion_matrix[true_index, predicted_index] += 1
 
-def plot_confusion_matrix(confusion_matrix: NDArray, name: str):
-    # Plot the confusion matrix
-    fig, ax = plt.subplots()
-    im = ax.imshow(confusion_matrix)
+    plt.figure(figsize=figsize)
+    plt.imshow(confusion_matrix, interpolation='nearest')
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(num_classes)
+    plt.xticks(tick_marks, class_names, rotation=45)
+    plt.yticks(tick_marks, class_names)
 
-    # Show all ticks and label them with the respective list entries
-    ax.set_xticks(range(len(TI_DIGITS_LABELS)), labels=TI_DIGITS_LABELS,
-                rotation=45, ha="right", rotation_mode="anchor")
-    ax.set_yticks(range(len(TI_DIGITS_LABELS)), labels=TI_DIGITS_LABELS)
+    thresh = confusion_matrix.max() / 2.
+    for i, j in np.ndindex(confusion_matrix.shape):
+        plt.text(j, i, format(confusion_matrix[i, j], 'd'),
+                 ha="center", va="center",
+                 color="white" if confusion_matrix[i, j] > thresh else "black")
 
-    # Loop over data dimensions and create text annotations.
-    for i in range(len(TI_DIGITS_LABELS)):
-        for j in range(len(TI_DIGITS_LABELS)):
-            text = ax.text(j, i, confusion_matrix[i, j],
-                        ha="center", va="center", color="w")
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    plt.savefig(f"./plots/confusion_matrix_{title}.png")
 
-    ax.set_title("Confusion matrix")
-    fig.tight_layout()
-    plt.savefig(f"./plots/confusion_matrix_{name}.png")
+def main():
+    logger.info("Start loading dataset")
+    ti_digits = TIDigits("./ConvertedTIDigits", isLazyLoading=True)
+    logger.info("Finish loading dataset")
 
+    train_dataset = ti_digits.train_dataset
+    test_dataset = ti_digits.test_dataset
 
-logger.info(f"Confusion matrix when prediction on known data:")
-logger.info(f"{train_data_confusion_matrix}")
-plot_confusion_matrix(train_data_confusion_matrix, "known_data_big_model")
-logger.info(f"Confusion matrix when prediction on unknown data:")
-logger.info(f"{test_data_confusion_matrix}")
-plot_confusion_matrix(test_data_confusion_matrix, "unknown_data_big_model")
+    mc = ModelCollection.load_from_files(".cache/big_model")
 
+    pred, truth = make_prediction(mc, train_dataset)
+    plot_confusion_matrix_from_lists(pred, truth, list(TI_DIGITS_LABELS), title="ConfusionMatrixFromSeenData")
+
+    pred, truth = make_prediction(mc, test_dataset)
+    plot_confusion_matrix_from_lists(pred, truth, list(TI_DIGITS_LABELS), title="ConfusionMatrixFromUnseenData")
+
+if __name__ == "__main__":
+    main()
