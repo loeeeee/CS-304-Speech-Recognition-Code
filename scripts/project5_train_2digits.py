@@ -64,7 +64,7 @@ def main():
     two_digit_signals_mfccs = {label: MFCC.batch(signals[:5], sample_rate=16000) for label, signals in two_digit_signals.items()}
     logger.info(f"Finish calculating mfccs")
 
-    log_transition_probabilities_between_words = [-i for i in range(50)]
+    log_transition_probabilities_between_words = [-i for i in range(200, 300, 10)]
     results = []
     for index, value in enumerate(log_transition_probabilities_between_words):
         log_transition_probability_between_words = value
