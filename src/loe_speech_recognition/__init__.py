@@ -5,6 +5,7 @@ from .ti_digits import TIDigits, DataLoader, TI_DIGITS_LABELS, TI_DIGITS_LABEL_T
 from .hidden_markov_model import Signal, HiddenMarkovModel, HiddenMarkovModelTrainable, HiddenMarkovModelInference
 from .model_collection import ModelCollection
 from .visualizer import plot_confusion_matrix_from_lists
+from .csvnia import CSVReader, CSVWriter
 
 __all__ = [
     "MFCC",
@@ -19,5 +20,7 @@ __all__ = [
     "Signal",
     "ModelCollection",
     "TI_DIGITS_LABEL_TYPE",
-    "plot_confusion_matrix_from_lists"
+    "plot_confusion_matrix_from_lists",
+    "CSVReader",
+    "CSVWriter",
 ]
