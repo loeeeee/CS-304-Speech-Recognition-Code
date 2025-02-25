@@ -76,6 +76,12 @@ class DataLoader:
         logger.debug(f"Signal has shape {signal.shape}")
         return signal
 
+    def get_all_n_digits(self, n: int) -> Dict[str, List[NDArray]]:
+        n_digit_labels = [label for label in self.data.keys() if len(label) == n]
+        n_digits: Dict[str, List[NDArray]] = {label: [self.lazy_loading(signal) for signal in self.data[label]]\
+            for label in n_digit_labels}
+        return n_digits
+
     @classmethod
     def from_folder_path(cls, folder_path: str, isLazyLoading: bool=True) -> Self:
         data = {}
