@@ -49,13 +49,14 @@ def accuracy_calculation(ground_truth: List[str], prediction: List[str]) -> None
     return
 
 def main():
-    N: int = 4
+    N: int = 7
 
     logger.info("Start loading dataset")
     ti_digits = TIDigits("./ConvertedTIDigits", isLazyLoading=True)
     logger.info("Finish loading dataset")
 
     hmm_inference = HiddenMarkovModelInference.from_folder(".cache/big_model/", list(TI_DIGITS_LABELS.keys()))
+    hmm_inference._log_transition_probability_between_words = -250
 
     # Train
     train_dataset = ti_digits.train_dataset
@@ -74,11 +75,28 @@ def main():
     csv_writer = CSVWriter(["ground_truth", "prediction"])
     for truth, pred in zip(ground_truth, prediction):
         csv_writer.add_line([truth, pred])
-    csv_writer.write(f"./plots/truth_vs_pred_{N}_digits.csv")
-    plot_confusion_matrix_from_lists(prediction, ground_truth, class_names=list(set(ground_truth)|set(prediction)), title=f"ConfusionMatrix{N}Digits", figsize=(16,12))
+    csv_writer.write(f"./plots/truth_vs_pred_{N}_digits_seen.csv")
+    # plot_confusion_matrix_from_lists(prediction, ground_truth, class_names=list(set(ground_truth)|set(prediction)), title=f"ConfusionMatrix{N}Digits_Seen", figsize=(16,12))
 
     # Test
     test_dataset = ti_digits.test_dataset
+    n_digit_signals = test_dataset.get_all_n_digits(N)
+    logger.info(f"In total, there are {len(n_digit_signals)} in training dataset")
 
+    n_digit_signals_mfccs = {label: MFCC.batch(signals, sample_rate=16000) for label, signals in n_digit_signals.items()}
+    logger.info(f"Finish calculating mfccs")
+
+    logger.info(f"Start making prediction")
+    # logging.getLogger().setLevel(logging.DEBUG) # Enable DEBUG
+    ground_truth, prediction = make_prediction(hmm_inference, n_digit_signals_mfccs)
+    logger.info(f"Finish making prediction")
+    accuracy_calculation(ground_truth, prediction)
+    # Write to CSV
+    csv_writer = CSVWriter(["ground_truth", "prediction"])
+    for truth, pred in zip(ground_truth, prediction):
+        csv_writer.add_line([truth, pred])
+    csv_writer.write(f"./plots/truth_vs_pred_{N}_digits_unseen.csv")
+    # plot_confusion_matrix_from_lists(prediction, ground_truth, class_names=list(set(ground_truth)|set(prediction)), title=f"ConfusionMatrix{N}Digits_Unseen", figsize=(16,12))
+    
 if __name__ == "__main__":
     main()
