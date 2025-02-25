@@ -43,3 +43,26 @@ def plot_confusion_matrix_from_lists(predictions, ground_truth, class_names, tit
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
     plt.savefig(f"./plots/confusion_matrix_{title}.png")
+
+def plot_line(x_values, y_values, title="Line Plot", x_label="X-axis", y_label="Y-axis"):
+    """
+    Plots a line graph using the provided x and y values.
+
+    Args:
+        x_values: A list of x-axis values.
+        y_values: A list of y-axis values.
+        title: The title of the plot (optional).
+        x_label: The label for the x-axis (optional).
+        y_label: The label for the y-axis (optional).
+    """
+
+    if len(x_values) != len(y_values):
+        raise ValueError("The lengths of x_values and y_values must be the same.")
+
+    plt.plot(x_values, y_values)
+    plt.title(title)
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    plt.grid(True) #add grid for better visualization.
+    plt.savefig(f"./plots/{title.replace(" ", "_")}.png")
+
