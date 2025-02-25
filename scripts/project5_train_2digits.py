@@ -64,24 +64,24 @@ def main():
     two_digit_signals_mfccs = {label: MFCC.batch(signals[:5], sample_rate=16000) for label, signals in two_digit_signals.items()}
     logger.info(f"Finish calculating mfccs")
 
-    log_transition_probabilities_between_words = [-i for i in range(3)]
+    log_transition_probabilities_between_words = [-i for i in range(50)]
     results = []
-    for i in log_transition_probabilities_between_words:
-        log_transition_probability_between_words = i
+    for index, value in enumerate(log_transition_probabilities_between_words):
+        log_transition_probability_between_words = value
         hmm_inference._log_transition_probability_between_words = log_transition_probability_between_words
         logger.info(f"Start making prediction")
         ground_truth, prediction = make_prediction(hmm_inference, two_digit_signals_mfccs)
         logger.info(f"Finish making prediction")
         print(f"For Log Transition Probability between word {log_transition_probability_between_words}")
-        results.append(accuracy_calculation(ground_truth, prediction))
+        results.append(accuracy_calculation(ground_truth, prediction) * 100)
     
-    plot_line(
-        x_values=log_transition_probabilities_between_words, 
-        y_values=results,
-        title="Accuracy vs. Log Transition Probability between Words",
-        x_label="Log Transition Probability",
-        y_label="Accuracy(%)",
-        )
+        plot_line(
+            x_values=log_transition_probabilities_between_words[:index+1], 
+            y_values=results,
+            title="Accuracy vs. Log Transition Probability between Words",
+            x_label="Log Transition Probability",
+            y_label="Accuracy(%)",
+            )
 
 if __name__ == "__main__":
     main()
