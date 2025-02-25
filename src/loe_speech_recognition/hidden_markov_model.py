@@ -222,6 +222,7 @@ class HiddenMarkovModel:
         # Save multivariate
         multivariate_normals_file_path: str = os.path.join(model_folder, "multivariate_normals.pickle")
         with open(multivariate_normals_file_path, "wb") as f:
+            logger.info(f"Saving {len(self._multivariate_normals)} multivariate normals")
             pickle.dump(self._multivariate_normals, f, pickle.HIGHEST_PROTOCOL)
 
         logger.info(f"Finish saving all files for {self.label} model")
@@ -495,15 +496,28 @@ class HiddenMarkovModelTrainable(HiddenMarkovModel):
         means: NDArray[np.float32], 
         covariances: NDArray[np.float32]
         ) -> List[MultivariateNormal]:
-        return [MultivariateNormal.from_means_covariances(mean=mean, covariance=covariance) \
+        """
+        Generate number of state of number of multivariate normals,
+        given means and covariances
+
+        Args:
+            means (NDArray[np.float32]): An array with shape (num_of_states, dim_of_features)
+            covariances (NDArray[np.float32]): An array with shape (num_of_states, dim_of_features, dim_of_features)
+
+        Returns:
+            List[MultivariateNormal]: Num_of_states of MN in a list
+        """
+        result = [MultivariateNormal.from_means_covariances(mean=mean, covariance=covariance) \
             for mean, covariance in zip(means, covariances)]
+        logger.info(f"Getting {len(result)} multivariate normals")
+        return result
 
 
 @dataclass
 class HiddenMarkovModelInference:
     
     _multivariate_normals: List[MultivariateNormal] = field(default_factory=list)
-    _log_transition_probs: SparseMatrix = field(init=False)
+    _log_transition_probs: SparseMatrix = field(default_factory=SparseMatrix)
     _model_boundaries: ModelBoundary = field(init=False)
 
     @classmethod
@@ -517,13 +531,13 @@ class HiddenMarkovModelInference:
         model_boundaries: ModelBoundary = ModelBoundary()
         # Walk the directory
         for model_folder_name in os.listdir(folder_path):
-            label = HiddenMarkovModel._model_folder_name_parser(folder_path)
-            if not label in models_to_load:
+            model_folder_path = os.path.join(folder_path, model_folder_name)
+            label = HiddenMarkovModel._model_folder_name_parser(model_folder_path)
+            if not (label in models_to_load): # Bug is here
                 logger.info(f"Skipping {model_folder_name}, because it is not models to load")
                 continue
 
             # Load the model
-            model_folder_path = os.path.join(folder_path, model_folder_name)
             # Load transition
             log_trans_probs_file_path: str = os.path.join(model_folder_path, "log_trans_probs.npy")
             log_transition_probability = np.load(log_trans_probs_file_path)
@@ -531,19 +545,19 @@ class HiddenMarkovModelInference:
             # Load multivariate
             multivariate_normals_file_path: str = os.path.join(model_folder_path, "multivariate_normals.pickle")
             with open(multivariate_normals_file_path, "rb") as f:
-                multivariate_normals = pickle.load(f)
+                model_multivariate_normals = pickle.load(f)
             
             # Put into structure
             log_transition_probabilities.append(log_transition_probability)
-            multivariate_normals.extend(multivariate_normals)
-            model_boundaries.append(len(multivariate_normals))
+            multivariate_normals.extend(model_multivariate_normals)
+            model_boundaries.append(len(model_multivariate_normals))
             model_labels.append(label)
 
             logger.info(f"Finish loading all files for {str(label)} model")
 
         row_counter: int = -1
         for log_transition_probability in log_transition_probabilities:
-            column_starting_point: int = row_counter
+            column_starting_point: int = row_counter + 1
             for row in log_transition_probability:
                 row_counter += 1
                 for column_index, probability in enumerate(row):
@@ -552,16 +566,17 @@ class HiddenMarkovModelInference:
                             [(row_counter, column_starting_point + column_index)] = probability
 
         hmm_inference._multivariate_normals = multivariate_normals
+        logger.info(f"Loading {len(hmm_inference._multivariate_normals)} of multivariate normals for inference")
         # Model boundaries
         model_boundaries.add_model_labels(model_labels)
         hmm_inference._model_boundaries = model_boundaries
         
         return hmm_inference
 
-    def predict(self, signal: NDArray[np.float32]) -> List[str]:
+    def predict(self, signal: NDArray[np.float32]) -> str:
         score, path = self._viterbi(observation_sequence=signal)
         labels = self._model_boundaries.get_labels(path)
-        return labels
+        return "".join(labels)
 
     def _viterbi(self, observation_sequence: NDArray[np.float32]) -> Tuple[float, NDArray[np.int8]]:
         initial_likelihood: NDArray[np.float32] = np.full((len(self._multivariate_normals)), -float("inf"), dtype=np.float32)
