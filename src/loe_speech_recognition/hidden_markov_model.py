@@ -89,7 +89,7 @@ class ModelBoundary:
         return
 
     def find_lower_boundary(self, state: int) -> int:
-        for lower_boundary in self.lower_boundaries:
+        for lower_boundary in reversed(self.lower_boundaries):
             if state >= lower_boundary:
                 logger.debug(f"Find lower boundary {lower_boundary}")
                 return lower_boundary
@@ -99,7 +99,7 @@ class ModelBoundary:
         raise Exception
 
     def find_upper_boundary(self, state: int) -> int:
-        for upper_boundaries in reversed(self.upper_boundaries):
+        for upper_boundaries in self.upper_boundaries:
             if state <= upper_boundaries:
                 logger.debug(f"Find upper boundary {upper_boundaries}")
                 return upper_boundaries
@@ -114,25 +114,18 @@ class ModelBoundary:
         return
 
     def get_labels(self, path: NDArray[np.int8]) -> List[str]:
-        # path_list: List[int] = path.tolist()
+        path_list: List[int] = path.tolist()
         # Parse the path
         ## When big jump happens
-        compressed_path: List[Tuple[int, int]] = []
-        counter: int = 1
-        last_state: int = int(path[0])
-        for i in path[1:]:
-            current_state: int = i
-            if current_state != last_state:
-                compressed_path.append((last_state, counter))
-                last_state = int(current_state)
-                counter = 1
-            else:
-                counter += 1
-        compressed_path.append((last_state, counter))
-        logger.info(f"Viterbi path: {compressed_path}") # [(0, 2), (1, 4), (2, 9), ...]
+        last_point: int = path_list[0]
+        simplified_compressed_path: List[int] = [last_point]
+        for current_point in path_list[1:]:
+            if current_point != last_point:
+                simplified_compressed_path.append(current_point)
+                last_point = current_point
+        logger.info(f"Viterbi path: {simplified_compressed_path}")
 
         labels: List[str] = []
-        simplified_compressed_path = [i[0] for i in compressed_path]
         first_point = simplified_compressed_path[0]
         lower_boundary = self.find_lower_boundary(first_point)
         upper_boundary = self.find_upper_boundary(first_point)
@@ -165,7 +158,7 @@ class ModelBoundary:
         lower_boundary = self.find_lower_boundary(state)
         label_index: int = self.lower_boundaries.index(lower_boundary)
         label: str = self._labels[label_index]
-        logger.debug(f"Get label index {label_index}, corresponding to label {label}")
+        logger.info(f"Get label index {label_index} for state {state}, corresponding to label {label}")
         return label
 
 
@@ -368,7 +361,7 @@ class HiddenMarkovModel:
         path: NDArray = np.zeros((sequence_length, ), dtype=np.int8)
         path[-1] = prev_state
         
-        for time in range(sequence_length - 2, 0, -1):
+        for time in range(sequence_length - 2, -1, -1):
             path[time] = prev_state
             prev_state = tracer[time, prev_state]
         return score, path
@@ -572,6 +565,7 @@ class HiddenMarkovModelInference:
     _multivariate_normals: List[MultivariateNormal] = field(default_factory=list)
     _log_transition_probs: SparseMatrix = field(default_factory=SparseMatrix)
     _model_boundaries: ModelBoundary = field(init=False)
+    _log_transition_probability_between_words: float = field(default=np.log(0.005))
 
     @classmethod
     def from_folder(cls, folder_path: str, models_to_load: List[str]) -> Self:
@@ -583,10 +577,10 @@ class HiddenMarkovModelInference:
         model_labels: List[str] = []
         model_boundaries: ModelBoundary = ModelBoundary()
         # Walk the directory
-        for model_folder_name in os.listdir(folder_path):
+        for model_folder_name in sorted(os.listdir(folder_path)):
             model_folder_path = os.path.join(folder_path, model_folder_name)
             label = HiddenMarkovModel._model_folder_name_parser(model_folder_path)
-            if not (label in models_to_load): # Bug is here
+            if not (label in models_to_load):
                 logger.info(f"Skipping {model_folder_name}, because it is not models to load")
                 continue
 
@@ -645,7 +639,7 @@ class HiddenMarkovModelInference:
             multivariate_normals=self._multivariate_normals,
             initial_likelihood=initial_likelihood,
             model_boundaries=self._model_boundaries,
-            log_transition_probability_between_words= -float("inf")#np.log(0.05),
+            log_transition_probability_between_words=self._log_transition_probability_between_words, # -float("inf")
             )
         return score, path
 
@@ -746,7 +740,7 @@ class HiddenMarkovModelInference:
         path: NDArray = np.zeros((sequence_length, ), dtype=np.int8)
         path[-1] = prev_state
         
-        for time in range(sequence_length - 2, 0, -1):
+        for time in range(sequence_length - 2, -1, -1):
             path[time] = prev_state
             prev_state = tracer[time, prev_state]
         return best_score, path
