@@ -42,6 +42,7 @@ class ModelBoundary:
         if not hasattr(self, "_cache_lower_boundaries"):
             new_boundaries = [0]
             new_boundaries.extend(self._boundaries[:-1])
+            new_boundaries = sorted(new_boundaries)
             self._cache_lower_boundaries = new_boundaries
             self._isFrozen = True
         return self._cache_lower_boundaries
@@ -57,6 +58,7 @@ class ModelBoundary:
         if not hasattr(self, "_cache_upper_boundaries"):
             new_boundaries = self._boundaries.copy()
             new_boundaries = [i - 1 for i in new_boundaries]
+            new_boundaries = sorted(new_boundaries)
             self._cache_upper_boundaries = new_boundaries
             self._isFrozen = True
         return self._cache_upper_boundaries
@@ -96,19 +98,70 @@ class ModelBoundary:
         logger.error(f"Failed to find lower boundary for state {state}")
         raise Exception
 
+    def find_upper_boundary(self, state: int) -> int:
+        for upper_boundaries in reversed(self.upper_boundaries):
+            if state <= upper_boundaries:
+                logger.debug(f"Find upper boundary {upper_boundaries}")
+                return upper_boundaries
+            else:
+                continue
+        logger.error(f"Failed to find upper boundary for state {state}")
+        raise Exception
+
     def add_model_labels(self, model_labels: List[str]) -> None:
         assert len(model_labels) == self.num_of_words
         self._labels = model_labels
         return
 
     def get_labels(self, path: NDArray[np.int8]) -> List[str]:
-        path_list: List[int] = path.tolist()
+        # path_list: List[int] = path.tolist()
+        # Parse the path
+        ## When big jump happens
+        compressed_path: List[Tuple[int, int]] = []
+        counter: int = 1
+        last_state: int = int(path[0])
+        for i in path[1:]:
+            current_state: int = i
+            if current_state != last_state:
+                compressed_path.append((last_state, counter))
+                last_state = int(current_state)
+                counter = 1
+            else:
+                counter += 1
+        compressed_path.append((last_state, counter))
+        logger.info(f"Viterbi path: {compressed_path}") # [(0, 2), (1, 4), (2, 9), ...]
+
         labels: List[str] = []
-        for state in path_list:
-            labels.append(self.get_label(state))
+        simplified_compressed_path = [i[0] for i in compressed_path]
+        first_point = simplified_compressed_path[0]
+        lower_boundary = self.find_lower_boundary(first_point)
+        upper_boundary = self.find_upper_boundary(first_point)
+        labels.append(self.get_label(first_point))
+        for index, current_point in enumerate(simplified_compressed_path[1:], start=1):
+            if current_point < lower_boundary or current_point > upper_boundary:
+                # Discover new word, straightforward scenario
+                labels.append(self.get_label(current_point))
+                lower_boundary = self.find_lower_boundary(current_point)
+                upper_boundary = self.find_upper_boundary(current_point)
+            else:
+                last_point = simplified_compressed_path[index - 1]
+                if last_point == upper_boundary and current_point == lower_boundary:
+                    # Discover new word, when previous word is repeated
+                    labels.append(self.get_label(current_point))
+
+        logger.info(f"Find labels {labels}")
         return labels
 
     def get_label(self, state: int) -> str:
+        """
+        Given a state, find the corresponding label
+
+        Args:
+            state (int): A state
+
+        Returns:
+            str: The label
+        """
         lower_boundary = self.find_lower_boundary(state)
         label_index: int = self.lower_boundaries.index(lower_boundary)
         label: str = self._labels[label_index]
@@ -585,14 +638,14 @@ class HiddenMarkovModelInference:
                         + self._log_transition_probs[lower_boundary, lower_boundary]
         logger.debug(f"One of initial log likelihood is {initial_likelihood[0]}")
 
-        logger.info(f"Start finding best match")
+        logger.debug(f"Start finding best match using viterbi static")
         score, path = self._viterbi_static(
             observation_sequence=observation_sequence,
             log_transition_probabilities=self._log_transition_probs,
             multivariate_normals=self._multivariate_normals,
             initial_likelihood=initial_likelihood,
             model_boundaries=self._model_boundaries,
-            log_transition_probability_between_words=np.log(0.05),
+            log_transition_probability_between_words= -float("inf")#np.log(0.05),
             )
         return score, path
 
@@ -675,7 +728,6 @@ class HiddenMarkovModelInference:
 
                 # Note the best path for each
                 tracer[time, new_state] = max_index
-                pass
 
             # Move array for next iteration
             likelihoods_left = likelihoods_right
@@ -683,7 +735,7 @@ class HiddenMarkovModelInference:
 
         # score: float = likelihoods[-1, -1]
         scores: NDArray = likelihoods_left[model_boundaries.upper_boundaries]
-        logger.info(f"Scores are {scores}")
+        logger.debug(f"Scores are {scores}")
         best_score: float = np.max(scores)
         best_score_index: int = int(np.argmax(scores))
         ## Translate back
