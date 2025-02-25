@@ -33,7 +33,7 @@ logger.debug(f"Raw signal is in {raw_signal.dtype} type")
 raw_signal_float: NDArray[np.float32] = raw_signal.astype(np.float32)
 signal = MFCC(raw_signal_float, sr).feature_vector.T
 
-mc = ModelCollection.load_from_files(".cache/big_model", 5, 39)
+mc = ModelCollection.load_from_files(".cache/big_model")
 
-print(mc.predict_phone_controller(signal))
+print(mc.predict(signal))
 
