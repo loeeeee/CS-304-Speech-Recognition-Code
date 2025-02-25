@@ -49,6 +49,8 @@ def accuracy_calculation(ground_truth: List[str], prediction: List[str]) -> floa
     return full_match
 
 def main():
+    N: int = 4
+
     logger.info("Start loading dataset")
     ti_digits = TIDigits("./ConvertedTIDigits", isLazyLoading=True)
     logger.info("Finish loading dataset")
@@ -57,14 +59,14 @@ def main():
 
     # Train
     train_dataset = ti_digits.train_dataset
-    two_digit_signals = train_dataset.get_all_n_digits(2)
+    two_digit_signals = train_dataset.get_all_n_digits(N)
     logger.info(f"In total, there are {len(two_digit_signals)} in training dataset")
 
     # Small dataset
     two_digit_signals_mfccs = {label: MFCC.batch(signals[:5], sample_rate=16000) for label, signals in two_digit_signals.items()}
     logger.info(f"Finish calculating mfccs")
 
-    log_transition_probabilities_between_words = [-i for i in range(200, 300, 10)]
+    log_transition_probabilities_between_words = [-i for i in range(0, 5000, 50)]
     results = []
     for index, value in enumerate(log_transition_probabilities_between_words):
         log_transition_probability_between_words = value
