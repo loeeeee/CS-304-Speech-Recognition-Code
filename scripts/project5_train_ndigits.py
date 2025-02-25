@@ -80,7 +80,7 @@ def main():
         plot_line(
             x_values=log_transition_probabilities_between_words[:index+1], 
             y_values=results,
-            title="Accuracy vs. Log Transition Probability between Words",
+            title=f"Accuracy vs. Log Transition Probability between Words with {N} Digits",
             x_label="Log Transition Probability",
             y_label="Accuracy(%)",
             )
