@@ -68,6 +68,7 @@ class TransitionProbabilities(SparseMatrix):
 class LogTransitionProbabilities(SparseMatrix):
     
     def append(self, ltp: Self) -> None:
+        self.num_of_states += ltp.num_of_states
         for point, value in ltp._core.items():
             new_point = tuple([i + self.num_of_states for i in point])
             self[new_point] = value
