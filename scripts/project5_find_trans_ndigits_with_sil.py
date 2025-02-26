@@ -57,7 +57,7 @@ def main():
 
     models_to_load: List[str] = list(TI_DIGITS_LABELS.keys())
     models_to_load.append("S") # Load silence
-    hmm_inference = HiddenMarkovModelInference.from_folder(".cache/big_model_speech_only/", models_to_load)
+    hmm_inference = HiddenMarkovModelInference.from_folder(".cache/big_model_speech_only_3/", models_to_load)
 
     # Train
     train_dataset = ti_digits.train_dataset
@@ -68,7 +68,7 @@ def main():
     n_digit_signals_mfccs = {label: MFCC.batch(signals[:5], sample_rate=16000) for label, signals in n_digit_signals.items()}
     logger.info(f"Finish calculating mfccs")
 
-    log_transition_probabilities_between_words = [-i for i in range(0, 1000, 50)]
+    log_transition_probabilities_between_words = [-i for i in range(0, 5000, 50)]
     results = []
     for index, value in enumerate(log_transition_probabilities_between_words):
         log_transition_probability_between_words = value

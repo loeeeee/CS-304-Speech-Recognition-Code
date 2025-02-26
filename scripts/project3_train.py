@@ -31,5 +31,5 @@ for label in TI_DIGITS_LABELS:
     logger.info("Finish initialize HMM model from data")
 
     logger.info("Start saving HMM model")
-    hmm.save(".cache/big_model/")
+    hmm.save(".cache/big_model_no_silence/")
     logger.info("Finish saving HMM model")

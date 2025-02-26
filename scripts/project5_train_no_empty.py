@@ -8,6 +8,8 @@ logging.basicConfig(filename='./runtime.log',
 logging.getLogger().setLevel(logging.INFO)
 
 
+model_name: str = "big_model_speech_only"
+
 logger.info("Start loading dataset")
 ti_digits = TIDigits("./ConvertedTIDigits", isLazyLoading=True)
 logger.info("Finish loading dataset")
@@ -40,7 +42,7 @@ for label in TI_DIGITS_LABELS:
     logger.info("Finish initialize HMM model from data")
 
     logger.info("Start saving HMM model")
-    hmm.save(".cache/big_model_speech_only/")
+    hmm.save(f".cache/{model_name}/")
     logger.info("Finish saving HMM model")
 
 
@@ -48,12 +50,12 @@ logger.info("Start initialize HMM model from silence")
 hmm = HiddenMarkovModelTrainable.from_data(
     "S", 
     MFCC.batch(signal_separation.get_all_noises(), sample_rate=16000),
-    num_of_states=5,
+    num_of_states=3,
     max_iterations=100, 
     isMultiProcessingTraining=True,
     )
 logger.info("Finish initialize HMM model from silence")
 
 logger.info("Start saving HMM model")
-hmm.save(".cache/big_model_speech_only/")
+hmm.save(f".cache/{model_name}/")
 logger.info("Finish saving HMM model")

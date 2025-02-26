@@ -49,7 +49,7 @@ def accuracy_calculation(ground_truth: List[str], prediction: List[str]) -> None
     return
 
 def main():
-    N: int = 2
+    N: int = 7
 
     logger.info("Start loading dataset")
     ti_digits = TIDigits("./ConvertedTIDigits", isLazyLoading=True)
