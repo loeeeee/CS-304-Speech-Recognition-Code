@@ -1,15 +1,11 @@
-import functools
-from typing import Dict, List, Tuple
+from typing import List
 import logging
-import concurrent.futures
 
 from numpy.typing import NDArray
 import numpy as np
 import scipy as sp
 
-from loe_speech_recognition import MFCC, TI_DIGITS_LABELS, HiddenMarkovModelInference, CSVWriter, Segmentation
-
-from tqdm import tqdm
+from loe_speech_recognition import MFCC, TI_DIGITS_LABELS, HiddenMarkovModelInference, Segmentation
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='./runtime.log', 
