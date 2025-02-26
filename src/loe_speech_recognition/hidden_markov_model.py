@@ -696,37 +696,56 @@ class HiddenMarkovModelTrainContinuous:
         hmm_inference._models_loaded = models_to_load
         return hmm_inference
 
-    def train(self, labeled_mfccs: Dict[str, List[NDArray[np.float32]]]) -> None:
+    def train(self, labeled_mfccs: Dict[str, List[NDArray[np.float32]]], max_iterations: int = 100) -> None:
+        # Train model iteratively
+        bar = tqdm(total=max_iterations, desc="Training Iteration", disable=not self.isTqdm, position=0)
+        for it in range(max_iterations):
+            logger.info(f"Training {it} iteration")
+            try:
+                remuxed_signals = self._train(labeled_mfccs)
+                self._update_trainable_model_parameters(remuxed_signals=remuxed_signals)
+            except HiddenMarkovModelTrainable.HMMTrainMeanFail:
+                logger.error(f"Failed to train model")
+                raise
+            except HiddenMarkovModelTrainable.HMMTrainConverge:
+                logger.info(f"Finish training model after {it} iterations")
+                break
+            bar.update()
+        bar.close()
+
+        logger.info("Finish training")
+
+    def _train(self, labeled_mfccs: Dict[str, List[NDArray[np.float32]]]) -> Dict[str, List[Signal]]:
 
         remuxed_signals: Dict[str, List[Signal]] = {label: [] for label in self._models_loaded}
 
-        bar = tqdm(total=len(labeled_mfccs), desc="Training", disable=not self.isTqdm)
+        bar = tqdm(total=len(labeled_mfccs), desc="Training", disable=not self.isTqdm, position=1)
         if not self.isMultiProcessing:
             for labels_and_mfccs in labeled_mfccs.items():
-                _remuxed_signals = self._train(labels_and_mfccs)
+                _remuxed_signals = self._train_process(labels_and_mfccs)
                 # Save results
                 for _labels, signals in _remuxed_signals.items():
                     remuxed_signals[_labels].extend(signals)
                 bar.update()
         else:
             with concurrent.futures.ProcessPoolExecutor() as executor:
-                for _remuxed_signals in executor.map(self._train, labeled_mfccs.items()):
+                for _remuxed_signals in executor.map(self._train_process, labeled_mfccs.items()):
                     for _labels, signals in _remuxed_signals.items():
                         remuxed_signals[_labels].extend(signals)
                     bar.update()
         bar.close()
+        return remuxed_signals
 
-        # Update parameters
+    def _update_trainable_model_parameters(self, remuxed_signals: Dict[str, List[Signal]]) -> None:
         for label, signals in remuxed_signals.items():
             ## Update means, covariances
             self._trainable_models[label]._train_external(signals)
             logger.debug(f"Training model {label} with {len(signals)} signals")
             ## Update multivariate normals
             self._trainable_models[label]._update_inference_weights()
-        
         return
 
-    def _train(self, labels_and_mfccs: Tuple[str, List[NDArray[np.float32]]]) -> Dict[str, List[Signal]]:
+    def _train_process(self, labels_and_mfccs: Tuple[str, List[NDArray[np.float32]]]) -> Dict[str, List[Signal]]:
         labels, mfccs = labels_and_mfccs
         # Insert silence
         labels = self.insert_silence(labels)
