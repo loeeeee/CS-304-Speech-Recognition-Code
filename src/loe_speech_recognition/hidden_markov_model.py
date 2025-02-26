@@ -689,6 +689,10 @@ class HiddenMarkovModelTrainContinuous:
             hmm_trainable = HiddenMarkovModelTrainable.from_folder(
                 model_folder_path=model_folder_path
                 )
+            # Force init _means for num_of_states info
+            hmm_trainable_num_of_states: int = len(hmm_trainable._multivariate_normals)
+            hmm_trainable._means = np.zeros((hmm_trainable_num_of_states, hmm_trainable_num_of_states), dtype=np.float32)
+            
             hmm_inference._trainable_models[label] = hmm_trainable
             
             logger.info(f"Finish loading all files for {str(label)} model")
