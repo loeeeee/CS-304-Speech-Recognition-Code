@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-import functools
 import os
 from typing import Dict, Generic, List, Self, Tuple, no_type_check
 import logging
@@ -11,7 +10,6 @@ import numpy as np
 import scipy as sp
 from tqdm import tqdm
 
-from .ti_digits import TI_DIGITS_LABEL_TYPE
 from .signal import Signal, SortedSignals
 
 logger = logging.getLogger(__name__)
@@ -113,7 +111,7 @@ class ModelBoundary:
         self._labels = model_labels
         return
 
-    def get_labels(self, path: NDArray[np.int8]) -> List[str]:
+    def get_labels(self, path: NDArray[np.int8], include_silence: bool=False) -> List[str]:
         path_list: List[int] = path.tolist()
         # Parse the path
         ## When big jump happens
@@ -123,7 +121,7 @@ class ModelBoundary:
             if current_point != last_point:
                 simplified_compressed_path.append(current_point)
                 last_point = current_point
-        logger.info(f"Viterbi path: {simplified_compressed_path}")
+        logger.debug(f"Viterbi path: {simplified_compressed_path}")
 
         labels: List[str] = []
         first_point = simplified_compressed_path[0]
@@ -133,16 +131,22 @@ class ModelBoundary:
         for index, current_point in enumerate(simplified_compressed_path[1:], start=1):
             if current_point < lower_boundary or current_point > upper_boundary:
                 # Discover new word, straightforward scenario
-                labels.append(self.get_label(current_point))
                 lower_boundary = self.find_lower_boundary(current_point)
                 upper_boundary = self.find_upper_boundary(current_point)
+                # Note the word
+                ## Deal with silence word
+                current_label = self.get_label(current_point)
+                if current_label == "S" and not include_silence:
+                    continue
+                else:
+                    labels.append(current_label)
             else:
                 last_point = simplified_compressed_path[index - 1]
                 if last_point == upper_boundary and current_point == lower_boundary:
                     # Discover new word, when previous word is repeated
                     labels.append(self.get_label(current_point))
 
-        logger.info(f"Find labels {labels}")
+        logger.debug(f"Find labels {labels}")
         return labels
 
     def get_label(self, state: int) -> str:
@@ -158,7 +162,7 @@ class ModelBoundary:
         lower_boundary = self.find_lower_boundary(state)
         label_index: int = self.lower_boundaries.index(lower_boundary)
         label: str = self._labels[label_index]
-        logger.info(f"Get label index {label_index} for state {state}, corresponding to label {label}")
+        logger.debug(f"Get label index {label_index} for state {state}, corresponding to label {label}")
         return label
 
 
