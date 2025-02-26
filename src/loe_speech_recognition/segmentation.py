@@ -164,8 +164,6 @@ class Segmentation:
         iter_audio_frames = itertools.chain.from_iterable((trimmed_audio.reshape((-1, self.frame_size)), [audio[self.frame_size*num_of_frames:]]))
 
         for frame in iter_audio_frames:
-            if self._isSpeechEverHighThreshold:
-                self._results.append(frame)
 
             if self._isSpeechBetweenHighLowThreshold:
                 # Detect speech continues
@@ -193,6 +191,8 @@ class Segmentation:
                         self._speech_ended_cnt.no_speech()
                     # Update noise floor
 
+            if self._isSpeechEverHighThreshold:
+                self._results.append(frame)
         # logger.debug(f"Result: {self._results}")
         return
 
