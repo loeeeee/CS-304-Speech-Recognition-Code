@@ -77,7 +77,7 @@ def main():
     csv_writer = CSVWriter(["ground_truth", "prediction"])
     for truth, pred in zip(ground_truth, prediction):
         csv_writer.add_line([truth, pred])
-    csv_writer.write(f"./plots/truth_vs_pred_{N}_digits_seen.csv")
+    csv_writer.write(f"./plots/truth_vs_pred_{N}_digits_seen_with_sil.csv")
     # plot_confusion_matrix_from_lists(prediction, ground_truth, class_names=list(set(ground_truth)|set(prediction)), title=f"ConfusionMatrix{N}Digits_Seen", figsize=(16,12))
 
     # Test
@@ -97,7 +97,7 @@ def main():
     csv_writer = CSVWriter(["ground_truth", "prediction"])
     for truth, pred in zip(ground_truth, prediction):
         csv_writer.add_line([truth, pred])
-    csv_writer.write(f"./plots/truth_vs_pred_{N}_digits_unseen.csv")
+    csv_writer.write(f"./plots/truth_vs_pred_{N}_digits_unseen_with_sil.csv")
     # plot_confusion_matrix_from_lists(prediction, ground_truth, class_names=list(set(ground_truth)|set(prediction)), title=f"ConfusionMatrix{N}Digits_Unseen", figsize=(16,12))
     
 if __name__ == "__main__":
