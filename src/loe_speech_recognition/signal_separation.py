@@ -14,13 +14,12 @@ from numpy.typing import NDArray
 logger = logging.getLogger(__name__)
 
 
-class _SegmentationDone(Exception):
-    def __init__(self, *args: object) -> None:
-        super().__init__(*args)
-
-
 @dataclass
 class _SpeechEndCounter:
+    class _SegmentationDone(Exception):
+        def __init__(self, *args: object) -> None:
+            super().__init__(*args)
+
     frame_count_threshold: int
 
     # Internals
@@ -32,7 +31,7 @@ class _SpeechEndCounter:
     def _check(self) -> None:
         if self._counter >= self.frame_count_threshold:
             logger.info(f"Speech ending empty frame threshold meet")
-            raise _SegmentationDone
+            raise self._SegmentationDone
 
     def no_speech(self) -> None:
         self._counter += 1
@@ -47,10 +46,15 @@ class _SpeechEndCounter:
 
 @dataclass
 class SignalSeparation:
+    class FailToProcess(Exception):
+        def __init__(self, *args: object) -> None:
+            super().__init__(*args)
+            logger.error("Failed to process signal")
+
     # Settings
     sample_rate: int = field(default=16000)
     frame_time: float = field(default=0.01)
-    speech_high_threshold: float = field(default=0.02)
+    speech_high_threshold: float = field(default=0.08)
     speech_low_threshold: float = field(default=0.01)
     silence_duration_threshold: float = field(default=0.02)
 
@@ -58,6 +62,7 @@ class SignalSeparation:
     _noises: List[NDArray[np.float32]] = field(default_factory=list)
     _max_volume: float = field(init=False)
     _result: List[NDArray[np.float32]] = field(default_factory=list)
+    _noise: List[NDArray[np.float32]] = field(default_factory=list)
 
     @property
     def frame_size(self) -> int:
@@ -75,19 +80,34 @@ class SignalSeparation:
     def _speech_low_threshold(self) -> float:
         return self.speech_low_threshold * self._max_volume
 
+    def remove_empty_batch(self, signals: List[NDArray[np.float32]]) -> List[NDArray[np.float32]]:
+        results = []
+        for signal in signals:
+            try:
+                results.append(self.remove_empty(signal))
+            except self.FailToProcess:
+                logger.warning(f"Signal with property: length {signal.shape[0]}, max {np.abs(np.max(signal))} failed")
+                continue
+        return results
 
     def remove_empty(self, signal: NDArray[np.float32]) -> NDArray[np.float32]:
         try:
             self._remove_empty(signal)
-        except _SegmentationDone:
-            return np.concatenate(self._result, dtype=np.float32)
-        logger.error("Failed to segment signal")
-        raise
+        except _SpeechEndCounter._SegmentationDone:
+            self._noises.append(np.concatenate(self._noise, dtype=np.float32))
+            self._noise = []
+            result = np.concatenate(self._result, dtype=np.float32)
+            if len(self._result) < 9: # This threshold is based on MFCC
+                logger.error(f"Resulting audio clip too short, {result}")
+                raise self.FailToProcess
+            return result
+        # logger.error(f"Failed to segment signal, {signal.tolist()}")
+        raise self.FailToProcess
 
     def _remove_empty(self, signal: NDArray[np.float32]) -> None:
         num_of_frames: int = signal.shape[0] // self.frame_size
         logger.debug(f"Getting {num_of_frames} frames")
-        self._max_volume = np.max(signal).astype(float)
+        self._max_volume = np.max(np.abs(signal)).astype(float)
 
         # Construct an iterable for all audio
         trimmed_audio = signal[:self.frame_size*num_of_frames]
@@ -97,7 +117,6 @@ class SignalSeparation:
 
         # Empty the result
         self._result = []
-                
         isSpeechEverHighThreshold: bool = False
         isSpeechBetweenHighLowThreshold: bool = False
         for frame_index, frame in enumerate(iter_audio_frames):
@@ -122,6 +141,7 @@ class SignalSeparation:
                     isSpeechEverHighThreshold = True
                     speech_ended_cnt.has_speech()
                 else:
+                    self._noise.append(frame)
                     if isSpeechEverHighThreshold:
                         logger.info("Speech no longer detected")
                         speech_ended_cnt.no_speech()
