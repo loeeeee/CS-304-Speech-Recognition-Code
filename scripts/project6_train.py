@@ -16,7 +16,6 @@ logging.basicConfig(filename='./runtime.log',
 logging.getLogger().setLevel(logging.INFO)
 
 def main():
-    N: int = 7
     sample_rate: int = 16000
     model_name: str = "big_model_speech_only"
 
@@ -27,12 +26,23 @@ def main():
     models_to_load: List[str] = list(TI_DIGITS_LABELS.keys())
     models_to_load.append("S") # Load silence
     hmm_train = HiddenMarkovModelTrainContinuous.from_folder(f".cache/{model_name}/", models_to_load)
-    hmm_train.isMultiProcessing = False
+    hmm_train.isMultiProcessing = True
 
     train_dataset = ti_digits.train_dataset
-    labeled_mfccs = {label: MFCC.batch(signals, sample_rate=sample_rate) for label, signals in train_dataset.get_all_n_digits(N).items()}
-    hmm_train.train(labeled_mfccs=labeled_mfccs)
-    hmm_train.save(f".cache/{model_name}_continuous")
+    labeled_mfccs: Dict[str, List[NDArray[np.float32]]] = {}
+    for i in range(2, 8):
+        logger.info(f"Adding dataset of {i} digits")
+        dataset = train_dataset.get_all_n_digits(i)
+        for label, signals in dataset.items():
+            labeled_mfccs[label] = MFCC.batch(signals, sample_rate=sample_rate)
+    logger.info(f"Total training set size is {len(labeled_mfccs)}")
+    # labeled_mfccs = {label: labeled_mfccs[label] for label in ["4Z2Z1", "943ZZ", "22114"]}
+    try:
+        hmm_train.train(labeled_mfccs=labeled_mfccs, max_iterations=200)
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received")
+    finally:
+        hmm_train.save(f".cache/{model_name}_continuous")
 
 
 if __name__ == "__main__":

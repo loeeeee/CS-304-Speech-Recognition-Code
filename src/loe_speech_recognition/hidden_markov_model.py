@@ -615,10 +615,12 @@ class HiddenMarkovModelMultiWord(HiddenMarkovModel):
             current_label = model_boundaries.get_label(state)
             if current_label != last_label:
                 # This will concat two partial signal with same label into one
+                # test_a = model_boundaries.find_upper_boundary(last_state)
+                # test_b = model_boundaries.find_lower_boundary(last_state)
                 results[last_label].append(
                     Signal(
                         num_of_state=model_boundaries.find_upper_boundary(last_state) \
-                            - model_boundaries.find_lower_boundary(last_state),
+                            - model_boundaries.find_lower_boundary(last_state) + 1,
                         # Get signal
                         signal=signal[last_index: index],
                         # Remove offset
@@ -692,7 +694,15 @@ class HiddenMarkovModelTrainContinuous:
                 )
             # Force init _means for num_of_states info
             hmm_trainable_num_of_states: int = len(hmm_trainable._multivariate_normals)
-            hmm_trainable._means = np.zeros((hmm_trainable_num_of_states, hmm_trainable_num_of_states), dtype=np.float32)
+            hmm_trainable._means = np.zeros(
+                (hmm_trainable_num_of_states, hmm_trainable._multivariate_normals[0].dim_of_features), 
+                dtype=np.float32
+            )
+            hmm_trainable._covariances = hmm_trainable._init_covariance(
+                hmm_trainable._multivariate_normals[0].dim_of_features, 
+                hmm_trainable_num_of_states
+            )
+            hmm_trainable._transition_probs = TransitionProbabilities.from_num_of_states(hmm_trainable_num_of_states)
 
             hmm_inference._trainable_models[label] = hmm_trainable
             
