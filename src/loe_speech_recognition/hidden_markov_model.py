@@ -672,6 +672,7 @@ class HiddenMarkovModelTrainContinuous:
     ## Preload
     _trainable_models: Dict[str, HiddenMarkovModelTrainable] = field(default_factory=dict)
     _models_loaded: List[str] = field(default_factory=list)
+    _num_of_finished_models: int = field(default=0)
 
     @classmethod
     def from_folder(cls, folder_path: str, models_to_load: List[str]) -> Self:
@@ -692,7 +693,7 @@ class HiddenMarkovModelTrainContinuous:
             # Force init _means for num_of_states info
             hmm_trainable_num_of_states: int = len(hmm_trainable._multivariate_normals)
             hmm_trainable._means = np.zeros((hmm_trainable_num_of_states, hmm_trainable_num_of_states), dtype=np.float32)
-            
+
             hmm_inference._trainable_models[label] = hmm_trainable
             
             logger.info(f"Finish loading all files for {str(label)} model")
@@ -743,10 +744,19 @@ class HiddenMarkovModelTrainContinuous:
     def _update_trainable_model_parameters(self, remuxed_signals: Dict[str, List[Signal]]) -> None:
         for label, signals in remuxed_signals.items():
             ## Update means, covariances
-            self._trainable_models[label]._train_external(signals)
-            logger.debug(f"Training model {label} with {len(signals)} signals")
-            ## Update multivariate normals
-            self._trainable_models[label]._update_inference_weights()
+            try:
+                self._trainable_models[label]._train_external(signals)
+                logger.debug(f"Training model {label} with {len(signals)} signals")
+            except HiddenMarkovModelTrainable.HMMTrainConverge:
+                self._num_of_finished_models += 1
+                logger.info("Another model finished training")
+                if self._num_of_finished_models == len(self._trainable_models):
+                    logger.info("Number of finished model is same as trainable models")
+                    raise
+            finally:
+                ## Update multivariate normals
+                self._trainable_models[label]._update_inference_weights()
+
         return
 
     def _train_process(self, labels_and_mfccs: Tuple[str, List[NDArray[np.float32]]]) -> Dict[str, List[Signal]]:
