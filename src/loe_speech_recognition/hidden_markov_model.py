@@ -169,6 +169,22 @@ class ModelBoundary:
         logger.debug(f"Get label index {label_index} for state {state}, corresponding to label {label}")
         return label
 
+    def get_state_range(self, label: str) -> Tuple[int, int]:
+        """
+        Get the range of state corresponding to given label
+
+        Args:
+            label (str): The interested label
+
+        Returns:
+            List[int]: A list of corresponding states
+        """
+        label_index = self._labels.index(label)
+        if label_index == 0:
+            return (0, self._boundaries[label_index])
+        else:
+            return (self._boundaries[label_index - 1], self._boundaries[label_index])
+
 
 @dataclass
 class SparseMatrix:
@@ -229,7 +245,7 @@ class HiddenMarkovModel:
 
     # Internals
     _multivariate_normals: List[MultivariateNormal] = field(default_factory=list)
-    _log_transition_probs: NDArray[np.float32] = field(init=False)
+    _log_transition_probs: NDArray[np.float32] = field(init=False) # TODO: Use SparseMatrix
 
     def __str__(self) -> str:
         return self.label
@@ -479,6 +495,11 @@ class HiddenMarkovModelTrainable(HiddenMarkovModel):
         # sorted_signals.show_viterbi_path_histogram()
 
         # Update parameters
+        self._update_middleware_parameters(sorted_signals)
+        return
+
+    def _update_middleware_parameters(self, sorted_signals: SortedSignals) -> None:
+        # Update parameters
         
         ## Update means
         logger.debug(f"Calculating new means")
@@ -509,10 +530,16 @@ class HiddenMarkovModelTrainable(HiddenMarkovModel):
         self._transition_probs = sorted_signals.transition_probabilities
         logger.debug(f"Trans probabilities is {self._transition_probs}")
 
+    def _train_external(self, signals: List[Signal]) -> None:
+        sorted_signals: SortedSignals = SortedSignals(self.num_of_states)
+        for signal in signals:
+            sorted_signals.append(signal)
+        self._update_middleware_parameters(sorted_signals)
         return
 
-    @staticmethod
+    @classmethod
     def _init_parameters(
+        cls,
         sample_signal: NDArray[np.float32], 
         num_of_states: int
         ) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]]:
@@ -541,9 +568,13 @@ class HiddenMarkovModelTrainable(HiddenMarkovModel):
         logger.debug("Finish compute means")
 
         # Covariance
-        covariance = (np.tile(np.eye(dim_of_features), (num_of_states, 1, 1)) * 0.01).astype(np.float32)
+        covariance = cls._init_covariance(dim_of_features, num_of_states)
 
         return np.array(means, dtype=np.float32), covariance, transition_probs
+
+    @staticmethod
+    def _init_covariance(dim_of_features: int, num_of_states: int) -> NDArray[np.float32]:
+        return (np.tile(np.eye(dim_of_features), (num_of_states, 1, 1)) * 0.01).astype(np.float32)
 
     @staticmethod
     def get_multivariate_normals(
@@ -752,3 +783,147 @@ class HiddenMarkovModelInference:
             path[time] = prev_state
             prev_state = tracer[time, prev_state]
         return best_score, path
+
+
+@dataclass
+class HiddenMarkovModelMultiWord(HiddenMarkovModel):
+    _model_boundaries: ModelBoundary = field(init=False)
+
+    def get_remuexed_signals(self, mfccs_sequences: List[NDArray[np.float32]]) -> Dict[str, List[Signal]]:
+        remuxed_signals: Dict[str, List[Signal]] = {label: [] for label in self._model_boundaries._labels}
+        for mfccs in mfccs_sequences:
+            _, path = self._viterbi(
+                mfccs
+            )
+            _remuxed_signals: Dict[str, List[Signal]] = self._remux_path_and_signal(
+                mfccs, path, self._model_boundaries
+            )
+
+            for label, signals in _remuxed_signals.items():
+                remuxed_signals[label].extend(signals)
+        return remuxed_signals
+
+    @staticmethod
+    def _remux_path_and_signal(
+        signal: NDArray[np.float32], 
+        path: NDArray[np.int8], 
+        model_boundaries: ModelBoundary
+        ) -> Dict[str, List[Signal]]:
+        results: Dict[str, List[Signal]] = {label: [] for label in model_boundaries._labels}
+        
+        # Loop internals
+        last_index: int = 0
+        last_state: int = path[last_index]
+        last_label = model_boundaries.get_label(last_state)
+        for index, state in enumerate(path):
+            current_label = model_boundaries.get_label(state)
+            if current_label != last_label:
+                # This will concat two partial signal with same label into one
+                results[last_label].append(
+                    Signal(
+                        num_of_state=model_boundaries.find_upper_boundary(last_state) \
+                            - model_boundaries.find_lower_boundary(last_state),
+                        # Get signal
+                        signal=signal[last_index: index],
+                        # Remove offset
+                        path=path[last_index: index] \
+                            - model_boundaries.find_lower_boundary(last_state)
+                    )
+                )
+                # Update state and index
+                last_index = index
+                last_state = path[last_index]
+                last_label = model_boundaries.get_label(last_state)
+            
+        return results
+
+    @classmethod
+    def from_parameters(cls, labels: str, trainable_models: Dict[str, HiddenMarkovModelTrainable]) -> Self:
+        hmm = cls(labels)
+        hmm.isTqdm = False
+
+        log_transition_probabilities: List[NDArray[np.float32]] = []
+        multivariate_normals: List[MultivariateNormal] = []
+        model_labels: List[str] = []
+        model_boundaries: ModelBoundary = ModelBoundary()
+        for label in labels:
+            log_transition_probability = trainable_models[label]._log_transition_probs
+            model_multivariate_normals = trainable_models[label]._multivariate_normals
+
+            log_transition_probabilities.append(log_transition_probability)
+            multivariate_normals.extend(model_multivariate_normals)
+            model_boundaries.append(len(model_multivariate_normals))
+            model_labels.append(label)
+
+        row_counter: int = -1
+        for log_transition_probability in log_transition_probabilities:
+            column_starting_point: int = row_counter + 1
+            for row in log_transition_probability:
+                row_counter += 1
+                for column_index, probability in enumerate(row):
+                    if probability != -float("inf"):
+                        hmm._log_transition_probs\
+                            [(row_counter, column_starting_point + column_index)] = probability
+
+        hmm._multivariate_normals = multivariate_normals
+        logger.info(f"Loading {len(hmm._multivariate_normals)} of multivariate normals for inference")
+        # Model boundaries
+        model_boundaries.add_model_labels(model_labels)
+        hmm._model_boundaries = model_boundaries
+
+        logger.debug(f"Finish reorganize the inference model based on {labels}")
+        return hmm
+
+
+@dataclass
+class HiddenMarkovModelTrainContinuous:
+    # Internals
+    ## Preload
+    _trainable_models: Dict[str, HiddenMarkovModelTrainable] = field(default_factory=dict)
+
+    @classmethod
+    def from_folder(cls, folder_path: str, models_to_load: List[str]) -> Self:
+        # Create new object
+        hmm_inference = cls()
+
+        # Walk the directory
+        for model_folder_name in sorted(os.listdir(folder_path)):
+            model_folder_path = os.path.join(folder_path, model_folder_name)
+            label = HiddenMarkovModel._model_folder_name_parser(model_folder_path)
+            if not (label in models_to_load):
+                logger.info(f"Skipping {model_folder_name}, because it is not models to load")
+                continue
+
+            hmm_trainable = HiddenMarkovModelTrainable.from_folder(
+                model_folder_path=model_folder_path
+                )
+            hmm_inference._trainable_models[label] = hmm_trainable
+            
+            logger.info(f"Finish loading all files for {str(label)} model")
+        
+        return hmm_inference
+
+    def train(self, labeled_mfccs: Dict[str, List[NDArray[np.float32]]]) -> None:
+
+        remuxed_signals: Dict[str, List[Signal]] = {label: [] for label in labeled_mfccs.keys()}
+        for labels, mfccs in labeled_mfccs.items():
+            # Reorganize model for training
+            hmm = HiddenMarkovModelMultiWord.from_parameters(labels, self._trainable_models)
+            
+            # Find path
+            logger.debug(f"Calculating Viterbi Path")
+            _remuxed_signals = hmm.get_remuexed_signals(mfccs)
+            
+            # Save results
+            for _labels, signals in _remuxed_signals.items():
+                remuxed_signals[_labels].extend(signals)
+
+        # Update parameters
+        for label, signals in remuxed_signals.items():
+            ## Update means, covariances
+            self._trainable_models[label]._train_external(signals)
+            logger.debug(f"Training model {label} with {len(signals)} signals")
+            ## Update multivariate normals
+            self._trainable_models[label]._update_inference_weights()
+        
+        return
