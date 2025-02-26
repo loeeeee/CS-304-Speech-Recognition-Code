@@ -111,7 +111,7 @@ class ModelBoundary:
         self._labels = model_labels
         return
 
-    def get_labels(self, path: NDArray[np.int8], include_silence: bool=False) -> List[str]:
+    def get_labels(self, path: NDArray[np.int8], skip_silence: bool=True) -> List[str]:
         path_list: List[int] = path.tolist()
         # Parse the path
         ## When big jump happens
@@ -127,7 +127,12 @@ class ModelBoundary:
         first_point = simplified_compressed_path[0]
         lower_boundary = self.find_lower_boundary(first_point)
         upper_boundary = self.find_upper_boundary(first_point)
-        labels.append(self.get_label(first_point))
+        current_label = self.get_label(first_point)
+        if current_label == "S" and skip_silence:
+            # Skip "S" if not include_silence
+            pass
+        else:
+            labels.append(current_label)
         for index, current_point in enumerate(simplified_compressed_path[1:], start=1):
             if current_point < lower_boundary or current_point > upper_boundary:
                 # Discover new word, straightforward scenario
@@ -136,7 +141,7 @@ class ModelBoundary:
                 # Note the word
                 ## Deal with silence word
                 current_label = self.get_label(current_point)
-                if current_label == "S" and not include_silence:
+                if current_label == "S" and skip_silence:
                     continue
                 else:
                     labels.append(current_label)
