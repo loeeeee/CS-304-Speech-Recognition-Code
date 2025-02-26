@@ -2,7 +2,7 @@ from .mfcc import MFCC
 from .segmentation import Segmentation
 from .dynamic_time_wrapping import DynamicTimeWarping
 from .ti_digits import TIDigits, DataLoader, TI_DIGITS_LABELS, TI_DIGITS_LABEL_TYPE
-from .hidden_markov_model import Signal, HiddenMarkovModel, HiddenMarkovModelTrainable, HiddenMarkovModelInference
+from .hidden_markov_model import Signal, HiddenMarkovModel, HiddenMarkovModelTrainable, HiddenMarkovModelInference, HiddenMarkovModelTrainContinuous
 from .model_collection import ModelCollection
 from .visualizer import plot_confusion_matrix_from_lists, plot_line
 from .csvnia import CSVReader, CSVWriter
@@ -18,6 +18,7 @@ __all__ = [
     "HiddenMarkovModel",
     "HiddenMarkovModelTrainable",
     "HiddenMarkovModelInference",
+    "HiddenMarkovModelTrainContinuous",
     "Signal",
     "ModelCollection",
     "TI_DIGITS_LABEL_TYPE",
