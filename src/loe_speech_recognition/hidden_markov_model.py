@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 import os
-from typing import Dict, Generic, List, Self, Tuple, no_type_check
+from typing import Dict, List, Self, Tuple
 import logging
 import concurrent.futures
 import pickle
@@ -11,196 +11,10 @@ import scipy as sp
 from tqdm import tqdm
 
 from .signal import Signal, SortedSignals
+from .transition_probability import TransitionProbabilities, LogTransitionProbabilities
+from .model_boundary import ModelBoundary
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ModelBoundary:
-    # Internals
-    ## Boundaries: Stores word starting position besides the first and the last word
-    _boundaries: List[int] = field(default_factory=list)
-    _labels: List[str] = field(default_factory=list)
-
-    # Cache
-    _cache_lower_boundaries: List[int] = field(init=False)
-    _cache_upper_boundaries: List[int] = field(init=False)
-
-    # Flag
-    _isFrozen: bool = field(default=False)
-
-    @property
-    def lower_boundaries(self) -> List[int]:
-        """
-        Get lower boundary of each word, meaning its starting state index
-
-        Returns:
-            List[int]: A list of starting state index
-        """
-        if not hasattr(self, "_cache_lower_boundaries"):
-            new_boundaries = [0]
-            new_boundaries.extend(self._boundaries[:-1])
-            new_boundaries = sorted(new_boundaries)
-            self._cache_lower_boundaries = new_boundaries
-            self._isFrozen = True
-        return self._cache_lower_boundaries
-
-    @property
-    def upper_boundaries(self) -> List[int]:
-        """
-        Get upper boundary of each word, meaning its ending state index
-
-        Returns:
-            List[int]: A list of ending state index
-        """
-        if not hasattr(self, "_cache_upper_boundaries"):
-            new_boundaries = self._boundaries.copy()
-            new_boundaries = [i - 1 for i in new_boundaries]
-            new_boundaries = sorted(new_boundaries)
-            self._cache_upper_boundaries = new_boundaries
-            self._isFrozen = True
-        return self._cache_upper_boundaries
-
-    @property
-    def num_of_words(self) -> int:
-        return len(self._boundaries)
-
-    def append(self, num_of_states: int) -> None:
-        """
-        Note the number of states current word has
-
-        Args:
-            num_of_states (int): Number of states
-        """
-        if self._isFrozen:
-            logger.error("Adding data after cache is created")
-            raise Exception
-        try:
-            self._boundaries.append(
-                self._boundaries[-1] + num_of_states
-            )
-        except IndexError:
-            self._boundaries.append(
-                num_of_states
-            )
-            logger.info(f"Init boundary internal array")
-        return
-
-    def find_lower_boundary(self, state: int) -> int:
-        for lower_boundary in reversed(self.lower_boundaries):
-            if state >= lower_boundary:
-                logger.debug(f"Find lower boundary {lower_boundary}")
-                return lower_boundary
-            else:
-                continue
-        logger.error(f"Failed to find lower boundary for state {state}")
-        raise Exception
-
-    def find_upper_boundary(self, state: int) -> int:
-        for upper_boundaries in self.upper_boundaries:
-            if state <= upper_boundaries:
-                logger.debug(f"Find upper boundary {upper_boundaries}")
-                return upper_boundaries
-            else:
-                continue
-        logger.error(f"Failed to find upper boundary for state {state}")
-        raise Exception
-
-    def add_model_labels(self, model_labels: List[str]) -> None:
-        assert len(model_labels) == self.num_of_words
-        self._labels = model_labels
-        return
-
-    def get_labels(self, path: NDArray[np.int8], skip_silence: bool=True) -> List[str]:
-        path_list: List[int] = path.tolist()
-        # Parse the path
-        ## When big jump happens
-        last_point: int = path_list[0]
-        simplified_compressed_path: List[int] = [last_point]
-        for current_point in path_list[1:]:
-            if current_point != last_point:
-                simplified_compressed_path.append(current_point)
-                last_point = current_point
-        logger.debug(f"Viterbi path: {simplified_compressed_path}")
-
-        labels: List[str] = []
-        first_point = simplified_compressed_path[0]
-        lower_boundary = self.find_lower_boundary(first_point)
-        upper_boundary = self.find_upper_boundary(first_point)
-        self.append_to_labels(first_point, skip_silence, labels)
-        for index, current_point in enumerate(simplified_compressed_path[1:], start=1):
-            if current_point < lower_boundary or current_point > upper_boundary:
-                # Discover new word, straightforward scenario
-                lower_boundary = self.find_lower_boundary(current_point)
-                upper_boundary = self.find_upper_boundary(current_point)
-                # Note the word
-                ## Deal with silence word
-                self.append_to_labels(current_point, skip_silence, labels)
-            else:
-                last_point = simplified_compressed_path[index - 1]
-                if last_point == upper_boundary and current_point == lower_boundary:
-                    # Discover new word, when previous word is repeated
-                    self.append_to_labels(current_point, skip_silence, labels)
-
-        logger.debug(f"Find labels {labels}")
-        return labels
-
-    def append_to_labels(self, state: int, skip_silence: bool, labels: List[str]) -> None:
-        current_label = self.get_label(state)
-        if current_label == "S" and skip_silence:
-            # Skip "S" if not include_silence
-            pass
-        else:
-            labels.append(current_label) # Modify the labels
-
-    def get_label(self, state: int) -> str:
-        """
-        Given a state, find the corresponding label
-
-        Args:
-            state (int): A state
-
-        Returns:
-            str: The label
-        """
-        lower_boundary = self.find_lower_boundary(state)
-        label_index: int = self.lower_boundaries.index(lower_boundary)
-        label: str = self._labels[label_index]
-        logger.debug(f"Get label index {label_index} for state {state}, corresponding to label {label}")
-        return label
-
-    def get_state_range(self, label: str) -> Tuple[int, int]:
-        """
-        Get the range of state corresponding to given label
-
-        Args:
-            label (str): The interested label
-
-        Returns:
-            List[int]: A list of corresponding states
-        """
-        label_index = self._labels.index(label)
-        if label_index == 0:
-            return (0, self._boundaries[label_index])
-        else:
-            return (self._boundaries[label_index - 1], self._boundaries[label_index])
-
-
-@dataclass
-class SparseMatrix:
-    # Internals
-    _core: Dict[Tuple[int, ...], float] = field(default_factory=dict)
-
-    def __getitem__(self, key: Tuple[int, ...]) -> float:
-        if key in self._core:
-            return self._core[key]
-        else:
-            return 0.
-
-    def __setitem__(self, key: Tuple[int, ...], value: float) -> None:
-        if key in self._core:
-            logger.warning(f"{key} already in the matrix")
-        self._core[key] = value
 
 
 @dataclass
@@ -245,7 +59,7 @@ class HiddenMarkovModel:
 
     # Internals
     _multivariate_normals: List[MultivariateNormal] = field(default_factory=list)
-    _log_transition_probs: NDArray[np.float32] = field(init=False) # TODO: Use SparseMatrix
+    _log_transition_probs: LogTransitionProbabilities = field(default_factory=LogTransitionProbabilities)
 
     def __str__(self) -> str:
         return self.label
@@ -286,8 +100,10 @@ class HiddenMarkovModel:
             os.makedirs(model_folder)
 
         # Save transition
-        log_trans_probs_file_path: str = os.path.join(model_folder, "log_trans_probs.npy")
-        np.save(log_trans_probs_file_path, self._log_transition_probs)
+        log_trans_probs_file_path: str = os.path.join(model_folder, "log_trans_probs.pickle")
+        with open(log_trans_probs_file_path, "wb") as f:
+            logger.info(f"Saving log_trans_probs")
+            pickle.dump(self._log_transition_probs, f, pickle.HIGHEST_PROTOCOL)
 
         # Save multivariate
         multivariate_normals_file_path: str = os.path.join(model_folder, "multivariate_normals.pickle")
@@ -313,8 +129,9 @@ class HiddenMarkovModel:
         # Create model
 
         # Load transition
-        log_trans_probs_file_path: str = os.path.join(model_folder_path, "log_trans_probs.npy")
-        model._log_transition_probs = np.load(log_trans_probs_file_path)
+        log_trans_probs_file_path: str = os.path.join(model_folder_path, "log_trans_probs.pickle")
+        with open(log_trans_probs_file_path, "rb") as f:
+            model._log_transition_probs = pickle.load(f)
 
         # Load multivariate
         multivariate_normals_file_path: str = os.path.join(model_folder_path, "multivariate_normals.pickle")
@@ -344,7 +161,7 @@ class HiddenMarkovModel:
     def _viterbi_static(
         cls,
         observation_sequence: NDArray[np.float32], 
-        log_transition_probabilities: NDArray[np.float32], 
+        log_transition_probabilities: LogTransitionProbabilities, 
         multivariate_normals: List[MultivariateNormal],
         initial_likelihood: NDArray[np.float32]
         ) -> Tuple[float, NDArray[np.int8]]:
@@ -407,7 +224,7 @@ class HiddenMarkovModelTrainable(HiddenMarkovModel):
 
     _means: NDArray[np.float32] = field(init=False)
     _covariances: NDArray[np.float32] = field(init=False)
-    _transition_probs: NDArray[np.float32] = field(init=False)
+    _transition_probs: TransitionProbabilities = field(init=False)
 
     @property
     def num_of_states(self) -> int:
@@ -465,7 +282,9 @@ class HiddenMarkovModelTrainable(HiddenMarkovModel):
 
     def _update_inference_weights(self) -> None:
         logger.info("Calculate the inference necessary things")
-        self._log_transition_probs = np.log(self._transition_probs)
+        self._log_transition_probs = LogTransitionProbabilities.from_transition_probability(
+            self._transition_probs
+        )
         self._multivariate_normals = self.get_multivariate_normals(
             self._means,
             self._covariances,
@@ -542,17 +361,10 @@ class HiddenMarkovModelTrainable(HiddenMarkovModel):
         cls,
         sample_signal: NDArray[np.float32], 
         num_of_states: int
-        ) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]]:
+        ) -> Tuple[NDArray[np.float32], NDArray[np.float32], TransitionProbabilities]:
         dim_of_features = sample_signal.shape[1]
         # Transition Probabilities
-        transition_probabilities: List[List[float]] = []
-        for current_state_index in range(num_of_states):
-            inner_list: List[float] = [0. for _ in range(current_state_index)]
-            inner_list.extend(\
-                [1/(num_of_states - current_state_index) \
-                    for _ in range(num_of_states - current_state_index)])
-            transition_probabilities.append(inner_list)
-        transition_probs = np.array(transition_probabilities, dtype=np.float32)
+        transition_probs = TransitionProbabilities.from_num_of_states(num_of_states)
         logger.debug("Finish compute transition probabilities")
 
         # Means
@@ -602,7 +414,7 @@ class HiddenMarkovModelTrainable(HiddenMarkovModel):
 class HiddenMarkovModelInference:
     
     _multivariate_normals: List[MultivariateNormal] = field(default_factory=list)
-    _log_transition_probs: SparseMatrix = field(default_factory=SparseMatrix)
+    _log_transition_probs: LogTransitionProbabilities = field(init=False)
     _model_boundaries: ModelBoundary = field(init=False)
     _log_transition_probability_between_words: float = field(default=np.log(0.005))
 
@@ -611,7 +423,7 @@ class HiddenMarkovModelInference:
         # Create new object
         hmm_inference = cls()
 
-        log_transition_probabilities: List[NDArray[np.float32]] = []
+        log_transition_probabilities: LogTransitionProbabilities = LogTransitionProbabilities()
         multivariate_normals: List[MultivariateNormal] = []
         model_labels: List[str] = []
         model_boundaries: ModelBoundary = ModelBoundary()
@@ -624,33 +436,17 @@ class HiddenMarkovModelInference:
                 continue
 
             # Load the model
-            # Load transition
-            log_trans_probs_file_path: str = os.path.join(model_folder_path, "log_trans_probs.npy")
-            log_transition_probability = np.load(log_trans_probs_file_path)
-
-            # Load multivariate
-            multivariate_normals_file_path: str = os.path.join(model_folder_path, "multivariate_normals.pickle")
-            with open(multivariate_normals_file_path, "rb") as f:
-                model_multivariate_normals = pickle.load(f)
+            hmm = HiddenMarkovModel.from_folder(model_folder_path)
             
             # Put into structure
-            log_transition_probabilities.append(log_transition_probability)
-            multivariate_normals.extend(model_multivariate_normals)
-            model_boundaries.append(len(model_multivariate_normals))
+            log_transition_probabilities.append(hmm._log_transition_probs)
+            multivariate_normals.extend(hmm._multivariate_normals)
+            model_boundaries.append(hmm.num_of_states)
             model_labels.append(label)
 
             logger.info(f"Finish loading all files for {str(label)} model")
 
-        row_counter: int = -1
-        for log_transition_probability in log_transition_probabilities:
-            column_starting_point: int = row_counter + 1
-            for row in log_transition_probability:
-                row_counter += 1
-                for column_index, probability in enumerate(row):
-                    if probability != -float("inf"):
-                        hmm_inference._log_transition_probs\
-                            [(row_counter, column_starting_point + column_index)] = probability
-
+        hmm_inference._log_transition_probs = log_transition_probabilities
         hmm_inference._multivariate_normals = multivariate_normals
         logger.info(f"Loading {len(hmm_inference._multivariate_normals)} of multivariate normals for inference")
         # Model boundaries
@@ -686,7 +482,7 @@ class HiddenMarkovModelInference:
     def _viterbi_static(
         cls,
         observation_sequence: NDArray[np.float32], 
-        log_transition_probabilities: SparseMatrix, 
+        log_transition_probabilities: LogTransitionProbabilities, 
         multivariate_normals: List[MultivariateNormal],
         initial_likelihood: NDArray[np.float32],
         model_boundaries: ModelBoundary,
@@ -842,7 +638,7 @@ class HiddenMarkovModelMultiWord(HiddenMarkovModel):
         hmm = cls(labels)
         hmm.isTqdm = False
 
-        log_transition_probabilities: List[NDArray[np.float32]] = []
+        log_transition_probabilities: LogTransitionProbabilities = LogTransitionProbabilities()
         multivariate_normals: List[MultivariateNormal] = []
         model_labels: List[str] = []
         model_boundaries: ModelBoundary = ModelBoundary()
@@ -855,16 +651,7 @@ class HiddenMarkovModelMultiWord(HiddenMarkovModel):
             model_boundaries.append(len(model_multivariate_normals))
             model_labels.append(label)
 
-        row_counter: int = -1
-        for log_transition_probability in log_transition_probabilities:
-            column_starting_point: int = row_counter + 1
-            for row in log_transition_probability:
-                row_counter += 1
-                for column_index, probability in enumerate(row):
-                    if probability != -float("inf"):
-                        hmm._log_transition_probs\
-                            [(row_counter, column_starting_point + column_index)] = probability
-
+        hmm._log_transition_probs = log_transition_probabilities
         hmm._multivariate_normals = multivariate_normals
         logger.info(f"Loading {len(hmm._multivariate_normals)} of multivariate normals for inference")
         # Model boundaries

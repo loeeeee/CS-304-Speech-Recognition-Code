@@ -7,6 +7,8 @@ from numpy.typing import NDArray
 from tabulate import tabulate
 import uniplot
 
+from .transition_probability import TransitionProbabilities
+
 logger: logging.Logger = logging.getLogger(__name__)
 
 
@@ -76,7 +78,7 @@ class SortedSignals:
         return signals_by_state
 
     @property
-    def transition_probabilities(self) -> NDArray[np.float32]:
+    def transition_probabilities(self) -> TransitionProbabilities:
         transition_counts: NDArray = np.zeros((self.num_of_states, self.num_of_states), dtype=np.int32)
         for signal in self._signals:
             last_state: int = signal.path[0]
@@ -85,7 +87,8 @@ class SortedSignals:
                 last_state = current_state
         logger.debug(f"Transition count is {transition_counts}")
         transition_probs = (transition_counts / np.sum(transition_counts, axis=1, keepdims=True)).astype(np.float32)
-        return transition_probs
+        tp = TransitionProbabilities.from_transition_probability(transition_probs)
+        return tp
 
     def show_viterbi_path_table(self) -> None:
         counter: Dict[int, int] = {}
