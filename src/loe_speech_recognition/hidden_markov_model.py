@@ -127,12 +127,7 @@ class ModelBoundary:
         first_point = simplified_compressed_path[0]
         lower_boundary = self.find_lower_boundary(first_point)
         upper_boundary = self.find_upper_boundary(first_point)
-        current_label = self.get_label(first_point)
-        if current_label == "S" and skip_silence:
-            # Skip "S" if not include_silence
-            pass
-        else:
-            labels.append(current_label)
+        self.append_to_labels(first_point, skip_silence, labels)
         for index, current_point in enumerate(simplified_compressed_path[1:], start=1):
             if current_point < lower_boundary or current_point > upper_boundary:
                 # Discover new word, straightforward scenario
@@ -140,19 +135,23 @@ class ModelBoundary:
                 upper_boundary = self.find_upper_boundary(current_point)
                 # Note the word
                 ## Deal with silence word
-                current_label = self.get_label(current_point)
-                if current_label == "S" and skip_silence:
-                    continue
-                else:
-                    labels.append(current_label)
+                self.append_to_labels(current_point, skip_silence, labels)
             else:
                 last_point = simplified_compressed_path[index - 1]
                 if last_point == upper_boundary and current_point == lower_boundary:
                     # Discover new word, when previous word is repeated
-                    labels.append(self.get_label(current_point))
+                    self.append_to_labels(current_point, skip_silence, labels)
 
         logger.debug(f"Find labels {labels}")
         return labels
+
+    def append_to_labels(self, state: int, skip_silence: bool, labels: List[str]) -> None:
+        current_label = self.get_label(state)
+        if current_label == "S" and skip_silence:
+            # Skip "S" if not include_silence
+            pass
+        else:
+            labels.append(current_label) # Modify the labels
 
     def get_label(self, state: int) -> str:
         """
