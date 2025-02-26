@@ -6,6 +6,7 @@ from .hidden_markov_model import Signal, HiddenMarkovModel, HiddenMarkovModelTra
 from .model_collection import ModelCollection
 from .visualizer import plot_confusion_matrix_from_lists, plot_line
 from .csvnia import CSVReader, CSVWriter
+from .signal_separation import SignalSeparation
 
 __all__ = [
     "MFCC",
@@ -24,4 +25,5 @@ __all__ = [
     "plot_line",
     "CSVReader",
     "CSVWriter",
+    "SignalSeparation",
 ]
