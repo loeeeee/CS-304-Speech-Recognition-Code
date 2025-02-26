@@ -634,7 +634,7 @@ class HiddenMarkovModelMultiWord(HiddenMarkovModel):
         return results
 
     @classmethod
-    def from_parameters(cls, labels: str, trainable_models: Dict[str, HiddenMarkovModelTrainable]) -> Self:
+    def from_labels(cls, labels: str, trainable_models: Dict[str, HiddenMarkovModelTrainable]) -> Self:
         hmm = cls(labels)
         hmm.isTqdm = False
 
@@ -664,9 +664,14 @@ class HiddenMarkovModelMultiWord(HiddenMarkovModel):
 
 @dataclass
 class HiddenMarkovModelTrainContinuous:
+    # Settings
+    isTqdm: bool = field(default=True)
+    isMultiProcessing: bool = field(default=True)
+
     # Internals
     ## Preload
     _trainable_models: Dict[str, HiddenMarkovModelTrainable] = field(default_factory=dict)
+    _models_loaded: List[str] = field(default_factory=list)
 
     @classmethod
     def from_folder(cls, folder_path: str, models_to_load: List[str]) -> Self:
@@ -688,22 +693,28 @@ class HiddenMarkovModelTrainContinuous:
             
             logger.info(f"Finish loading all files for {str(label)} model")
         
+        hmm_inference._models_loaded = models_to_load
         return hmm_inference
 
     def train(self, labeled_mfccs: Dict[str, List[NDArray[np.float32]]]) -> None:
 
-        remuxed_signals: Dict[str, List[Signal]] = {label: [] for label in labeled_mfccs.keys()}
-        for labels, mfccs in labeled_mfccs.items():
-            # Reorganize model for training
-            hmm = HiddenMarkovModelMultiWord.from_parameters(labels, self._trainable_models)
-            
-            # Find path
-            logger.debug(f"Calculating Viterbi Path")
-            _remuxed_signals = hmm.get_remuexed_signals(mfccs)
-            
-            # Save results
-            for _labels, signals in _remuxed_signals.items():
-                remuxed_signals[_labels].extend(signals)
+        remuxed_signals: Dict[str, List[Signal]] = {label: [] for label in self._models_loaded}
+
+        bar = tqdm(total=len(labeled_mfccs), desc="Training", disable=not self.isTqdm)
+        if not self.isMultiProcessing:
+            for labels_and_mfccs in labeled_mfccs.items():
+                _remuxed_signals = self._train(labels_and_mfccs)
+                # Save results
+                for _labels, signals in _remuxed_signals.items():
+                    remuxed_signals[_labels].extend(signals)
+                bar.update()
+        else:
+            with concurrent.futures.ProcessPoolExecutor() as executor:
+                for _remuxed_signals in executor.map(self._train, labeled_mfccs.items()):
+                    for _labels, signals in _remuxed_signals.items():
+                        remuxed_signals[_labels].extend(signals)
+                    bar.update()
+        bar.close()
 
         # Update parameters
         for label, signals in remuxed_signals.items():
@@ -714,3 +725,30 @@ class HiddenMarkovModelTrainContinuous:
             self._trainable_models[label]._update_inference_weights()
         
         return
+
+    def _train(self, labels_and_mfccs: Tuple[str, List[NDArray[np.float32]]]) -> Dict[str, List[Signal]]:
+        labels, mfccs = labels_and_mfccs
+        # Insert silence
+        labels = self.insert_silence(labels)
+        # Reorganize model for training
+        hmm = HiddenMarkovModelMultiWord.from_labels(labels, self._trainable_models)
+        
+        # Find path
+        logger.debug(f"Calculating Viterbi Path")
+        _remuxed_signals = hmm.get_remuexed_signals(mfccs)
+        return _remuxed_signals
+
+    def save(self, folder_path: str) -> None:
+        logger.info(f"Saving files to {folder_path}")
+        if not os.path.isdir(folder_path):
+            logger.info(f"Folder {folder_path} do not exists, creating the folder")
+            os.makedirs(folder_path)
+
+        for model in self._trainable_models.values():
+            model.save(folder_path)
+            logger.info(f"Saving {model}")
+
+    @staticmethod
+    def insert_silence(labels: str) -> str:
+        new_labels: str = "".join([f"S{i}" for i in labels])
+        return f"{new_labels}S"
