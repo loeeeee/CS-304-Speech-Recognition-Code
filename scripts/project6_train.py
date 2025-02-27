@@ -1,14 +1,10 @@
-import functools
-from typing import Dict, List, Tuple
+from typing import Dict, List
 import logging
-import concurrent.futures
 
 from numpy.typing import NDArray
 import numpy as np
 
 from loe_speech_recognition import TIDigits, MFCC, TI_DIGITS_LABELS, HiddenMarkovModelTrainContinuous
-
-from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='./runtime.log', 
@@ -42,7 +38,7 @@ def main():
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
     finally:
-        hmm_train.save(f".cache/{model_name}_continuous")
+        hmm_train.save(f".cache/{model_name}_continuous_2")
 
 
 if __name__ == "__main__":
